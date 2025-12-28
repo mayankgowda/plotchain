@@ -12,15 +12,16 @@ from common import ItemMeta, float_close, make_difficulty_plan, save_figure, sta
 TYPE = "bode_phase"
 DEFAULT_N = 15
 
-FINAL_FIELDS = ["cutoff_hz", "phase_deg_at_10fc"]
+FINAL_FIELDS = ["cutoff_hz", "phase_deg_at_fq"]
 CHECKPOINT_FIELDS = ["cp_phase_deg_at_fc"]
 
 def baseline_from_params(pp: Dict[str, Any]) -> Dict[str, float]:
     fc = float(pp["fc_hz"])
-    phase_10fc = -math.degrees(math.atan(10.0))
+    fq = float(pp["fq_hz"])
+    phase_fq = -math.degrees(math.atan(fq / fc))
     return {
         "cutoff_hz": float(fc),
-        "phase_deg_at_10fc": float(phase_10fc),
+        "phase_deg_at_fq": float(phase_fq),
         "cp_phase_deg_at_fc": -45.0,
     }
 
@@ -28,6 +29,7 @@ def _render(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any
     import matplotlib.pyplot as plt
 
     fc = float(pp["fc_hz"])
+    fq = float(pp["fq_hz"])
     fmin = float(pp["fmin_hz"])
     fmax = float(pp["fmax_hz"])
     f = np.logspace(np.log10(fmin), np.log10(fmax), int(pp["n_points"]))
@@ -40,6 +42,10 @@ def _render(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any
     ax.set_ylabel("Phase (deg)")
     if meta.difficulty != "edge":
         ax.grid(True, which="both", alpha=0.3)
+
+    # Query frequency marker (f_q) for a checkpoint read.
+    ax.axvline(fq, linestyle=":", linewidth=1.2, alpha=0.9)
+    ax.text(fq, float(np.min(phase)), " f_q", rotation=90, va="bottom", ha="left", fontsize=9)
 
     save_figure(fig, out_path)
     plt.close(fig)
@@ -77,8 +83,15 @@ def generate(out_dir: Path, master_seed: int, n: int, images_root: Path) -> List
             n_points = 220
             fmin, fmax = fc / 80.0, fc * 900.0
 
+        # Query frequency marker (f_q) for reading a specific point on the curve.
+        fq_mult = float(rng.choice([2.0, 5.0, 10.0, 20.0]))
+        fq = float(fc * fq_mult)
+        fq = float(min(max(fq, fmin * 1.1), fmax * 0.9))
+
         pp = {
             "fc_hz": float(fc),
+            "fq_hz": float(fq),
+            "fq_mult": float(fq_mult),
             "fmin_hz": float(fmin),
             "fmax_hz": float(fmax),
             "n_points": int(n_points),
@@ -95,7 +108,7 @@ def generate(out_dir: Path, master_seed: int, n: int, images_root: Path) -> List
         q = (
             "From the Bode phase plot (1st-order low-pass):\\n"
             "1) Find cutoff_hz (Hz) as the frequency where phase equals -45 deg.\\n"
-            "2) Report phase_deg_at_10fc (deg), the phase at 10×cutoff_hz.\\n"
+            "2) A vertical dotted line marks f_q. Report phase_deg_at_fq (deg), the phase at f_q.\\n"
             "Return JSON numeric values."
         )
 

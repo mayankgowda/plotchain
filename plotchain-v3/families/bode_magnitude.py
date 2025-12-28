@@ -13,19 +13,21 @@ TYPE = "bode_magnitude"
 DEFAULT_N = 15
 
 FINAL_FIELDS = ["dc_gain_db", "cutoff_hz"]
-CHECKPOINT_FIELDS = ["cp_mag_at_fc_db", "cp_slope_db_per_decade"]
+CHECKPOINT_FIELDS = ["cp_mag_at_fc_db", "cp_mag_at_fq_db"]
 
 
 def baseline_from_params(pp: Dict[str, Any]) -> Dict[str, float]:
     K = float(pp["K"])
     fc = float(pp["fc_hz"])
+    fq = float(pp["fq_hz"])
     dc_gain_db = 20.0 * math.log10(max(K, 1e-12))
     mag_fc = dc_gain_db - 20.0 * math.log10(math.sqrt(2.0))
+    mag_fq = 20.0 * math.log10(K / math.sqrt(1.0 + (fq / fc) ** 2))
     return {
         "dc_gain_db": float(dc_gain_db),
         "cutoff_hz": float(fc),
         "cp_mag_at_fc_db": float(mag_fc),
-        "cp_slope_db_per_decade": -20.0,
+        "cp_mag_at_fq_db": float(mag_fq),
     }
 
 
@@ -34,6 +36,7 @@ def _render(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any
 
     K = float(pp["K"])
     fc = float(pp["fc_hz"])
+    fq = float(pp["fq_hz"])
     fmin = float(pp["fmin_hz"])
     fmax = float(pp["fmax_hz"])
 
@@ -47,6 +50,12 @@ def _render(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any
     ax.set_ylabel("Magnitude (dB)")
     if meta.difficulty != "edge":
         ax.grid(True, which="both", alpha=0.3)
+
+    # Helper markers: cutoff level and a query frequency (f_q) for a checkpoint read.
+    dc_gain_db = 20.0 * np.log10(max(K, 1e-12))
+    ax.axhline(dc_gain_db - 3.0103, linestyle="--", linewidth=1.0, alpha=0.6)
+    ax.axvline(fq, linestyle=":", linewidth=1.2, alpha=0.9)
+    ax.text(fq, float(np.min(mag)), " f_q", rotation=90, va="bottom", ha="left", fontsize=9)
 
     save_figure(fig, out_path)
     plt.close(fig)
@@ -88,9 +97,17 @@ def generate(out_dir: Path, master_seed: int, n: int, images_root: Path) -> List
             n_points = 220
             fmin, fmax = fc / 60.0, fc * 800.0
 
+        # Query frequency marker for a checkpoint read (shown as f_q on the plot).
+        fq_mult = float(rng.choice([2.0, 5.0, 10.0, 20.0]))
+        fq = float(fc * fq_mult)
+        # Keep it comfortably inside the plotted range.
+        fq = float(min(max(fq, fmin * 1.1), fmax * 0.9))
+
         pp = {
             "K": float(K),
             "fc_hz": float(fc),
+            "fq_hz": float(fq),
+            "fq_mult": float(fq_mult),
             "fmin_hz": float(fmin),
             "fmax_hz": float(fmax),
             "n_points": int(n_points),
@@ -107,7 +124,8 @@ def generate(out_dir: Path, master_seed: int, n: int, images_root: Path) -> List
         q = (
             "From the Bode magnitude plot (1st-order low-pass), estimate:\\n"
             "1) dc_gain_db (dB)\\n"
-            "2) cutoff_hz (Hz) at -3 dB\\n"
+            "2) cutoff_hz (Hz): the -3 dB point relative to dc_gain_db\\n"
+            "A vertical dotted line marks a query frequency f_q used for a checkpoint value.\\n"
             "Return JSON numeric values."
         )
 

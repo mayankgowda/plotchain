@@ -54,6 +54,10 @@ def _render(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any
     ax.set_ylabel("Magnitude (dB)")
     if meta.difficulty != "edge":
         ax.grid(True, which="both", alpha=0.3)
+        peak_db = float(np.max(mag_db))
+        ax.axhline(peak_db - 3.0, linestyle="--", linewidth=1.1, alpha=0.7)
+        ax.text(fmin, peak_db - 3.0, " -3 dB", va="bottom", ha="left", fontsize=9)
+    ax.tick_params(labelsize=10)
 
     save_figure(fig, out_path)
     plt.close(fig)
@@ -74,20 +78,20 @@ def generate(out_dir: Path, master_seed: int, n: int, images_root: Path) -> List
 
         if difficulty == "clean":
             f0 = float(rng.uniform(80.0, 2500.0))
-            Q = float(rng.uniform(1.5, 8.0))
+            Q = float(rng.uniform(1.2, 3.0))
             G = float(rng.uniform(0.8, 2.0))
             n_points = 520
             fmin, fmax = f0 / 30.0, f0 * 30.0
         elif difficulty == "moderate":
             f0 = float(rng.uniform(60.0, 4000.0))
-            Q = float(rng.uniform(1.2, 12.0))
+            Q = float(rng.uniform(2.5, 6.0))
             G = float(rng.uniform(0.7, 2.5))
             n_points = 450
             fmin, fmax = f0 / 50.0, f0 * 50.0
         else:
             edge_tag = "high_Q_narrow_band_sparse"
             f0 = float(rng.uniform(120.0, 2500.0))
-            Q = float(rng.uniform(10.0, 20.0))
+            Q = float(rng.uniform(6.0, 12.0))
             G = float(rng.uniform(0.9, 1.8))
             n_points = 240
             fmin, fmax = f0 / 120.0, f0 * 120.0

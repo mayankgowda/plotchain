@@ -13,9 +13,9 @@ TYPE = "iv_curve"
 DEFAULT_N = 15
 
 FINAL_FIELDS_RES = ["resistance_ohm"]
-FINAL_FIELDS_DIODE = ["target_current_a", "turn_on_voltage_v_at_target_i"]
+FINAL_FIELDS_DIODE = ["turn_on_voltage_v_at_target_i"]
 CHECKPOINT_FIELDS_RES = ["cp_slope_ohm"]
-CHECKPOINT_FIELDS_DIODE = ["cp_nVt", "cp_Rs", "cp_Is"]
+CHECKPOINT_FIELDS_DIODE: List[str] = []
 
 
 def _diode_voltage(Is: float, nVt: float, Rs: float, I: float) -> float:
@@ -32,8 +32,8 @@ def baseline_from_params(pp: Dict[str, Any]) -> Dict[str, float]:
     Rs = float(pp["Rs"])
     target_I = float(pp["target_current_a"])
     Vt = _diode_voltage(Is, nVt, Rs, target_I)
-    return {"target_current_a": float(target_I), "turn_on_voltage_v_at_target_i": float(Vt),
-            "cp_Is": float(Is), "cp_nVt": float(nVt), "cp_Rs": float(Rs)}
+    # Target current is provided in the question text; do not treat it as a prediction target.
+    return {"turn_on_voltage_v_at_target_i": float(Vt)}
 
 
 def _render(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
@@ -142,9 +142,8 @@ def generate(out_dir: Path, master_seed: int, n: int, images_root: Path) -> List
             final_fields = FINAL_FIELDS_DIODE
             checkpoint_fields = CHECKPOINT_FIELDS_DIODE
             q = (
-                f"From the diode I–V curve, at target current I = {target_I:.6f} A, estimate:\\n"
-                "1) target_current_a (A)  (this is the given target current)\\n"
-                "2) turn_on_voltage_v_at_target_i (V) (voltage at that current)\\n"
+                f"From the diode I–V curve, at the given target current I = {target_I:.6f} A, "
+                "estimate turn_on_voltage_v_at_target_i (V) (the voltage at that current). "
                 "Return JSON numeric values."
             )
 

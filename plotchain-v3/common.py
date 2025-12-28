@@ -72,6 +72,6 @@ def axis_ticks_linear(vmin: float, vmax: float, n_ticks: int) -> float:
     return float(candidates[np.argmin(np.abs(candidates - raw))])
 
 
-def save_figure(fig, out_path: Path, dpi: int = 160) -> None:
+def save_figure(fig, out_path: Path, dpi: int = 220) -> None:
     ensure_dir(out_path.parent)
-    fig.savefig(out_path, dpi=dpi, bbox_inches="tight")
+    fig.savefig(out_path, dpi=dpi, bbox_inches="tight", facecolor="white")
