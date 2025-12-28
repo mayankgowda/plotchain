@@ -1,0 +1,2 @@
+provider,model,n,overall_pass_rate,mean_abs_err,mean_rel_err,mean_latency_s
+openai,gpt-4.1,55,0.7090909090909091,16.61909312962963,0.1929625608655588,1.4730588045987216

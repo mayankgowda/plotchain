@@ -1,4 +1,10 @@
-numpy==1.24.0
-scipy==1.14.1
-matplotlib==3.7.5
-pandas==2.2.3
+numpy>=1.26.4,<3
+scipy>=1.14.1,<2
+matplotlib>=3.8,<4
+pandas>=2.2.3,<3
+pillow>=10,<12
+tqdm>=4.66,<5
+
+openai>=1.50.0
+google-genai>=0.3.0
+anthropic>=0.35.0

@@ -1,34 +1,40 @@
 #!/usr/bin/env python3
 """
-baseline_solver.py
+baseline_solver_v2.py
 
-PlotChain v1 validity / consistency checker.
+PlotChain v2 verification checker (exact, deterministic).
 
-Goal:
-- Recompute expected answers from plot_params using canonical models/formulas.
-- Compare against stored ground_truth with reasonable tolerances.
-- Output a report (stdout + optional CSV).
+Strategy:
+- For each record, rebuild the underlying arrays using item_seed-derived RNG streams.
+- Compute the same ground truth fields the generator wrote.
+- Compare to stored ground_truth.
 
-This baseline is NOT an OCR or vision baseline; it defends dataset validity.
-
-Important note (diode I–V):
-- PlotChain v1 computes diode turn-on voltage by:
-  (1) generating an I(V) curve,
-  (2) adding small Gaussian "measurement noise" to current samples,
-  (3) interpolating V where I hits a target current on that noisy curve.
-- Since the exact noise realization is not stored per item in v1, a parameter-only baseline
-  cannot reproduce it exactly. We therefore use a larger tolerance for diode turn-on voltage.
+Tolerances:
+- Tight but not brittle across machines: default abs_tol = 1e-5.
+- You can set it to 1e-6 if you're pinning numpy/scipy/matplotlib versions.
 """
 
 import argparse
 import json
 import math
+import hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
+from scipy import signal
 
+
+def _u64_from_bytes(b: bytes) -> int:
+    return int.from_bytes(b[:8], "little", signed=False)
+
+def sub_seed(item_seed: int, salt: str) -> int:
+    h = hashlib.sha256(f"{item_seed}|{salt}".encode("utf-8")).digest()
+    return _u64_from_bytes(h)
+
+def rng_for(item_seed: int, salt: str) -> np.random.Generator:
+    return np.random.default_rng(sub_seed(item_seed, salt))
 
 def load_jsonl(path: Path) -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
@@ -39,59 +45,19 @@ def load_jsonl(path: Path) -> List[Dict[str, Any]]:
                 items.append(json.loads(line))
     return items
 
-
-def percent_overshoot_from_zeta(zeta: float) -> float:
-    """Standard underdamped second-order step response percent overshoot."""
-    if zeta <= 0:
-        return float("nan")
-    if zeta >= 1:
-        return 0.0
-    return float(math.exp(-zeta * math.pi / math.sqrt(1.0 - zeta**2)) * 100.0)
-
-
-def settling_time_2pct_approx(zeta: float, wn: float) -> float:
-    """Standard approximation Ts(2%) ~ 4 / (zeta * wn)."""
-    if zeta <= 0 or wn <= 0:
-        return float("nan")
-    return float(4.0 / (zeta * wn))
-
-
-def bode_dc_gain_db(K: float) -> float:
-    return float(20.0 * math.log10(K))
-
-
-def bode_cutoff_hz(fc_hz: float) -> float:
-    """For a 1st-order low-pass, -3 dB cutoff is fc."""
-    return float(fc_hz)
-
-
-def fft_expected_dominant_freq(tones_hz: List[float], amps: List[float]) -> float:
-    """Expected dominant tone is the tone with the largest amplitude."""
-    if not tones_hz or not amps or len(tones_hz) != len(amps):
-        return float("nan")
-    idx = int(np.argmax(np.array(amps)))
-    return float(tones_hz[idx])
-
-
-def waveform_expected_vpp(A: float) -> float:
-    """For generated waveforms, amplitude is roughly ±A, so Vpp ~ 2A."""
-    return float(2.0 * A)
-
+def settling_time_2pct(t: np.ndarray, y: np.ndarray, final: float, tol: float = 0.02) -> float:
+    band = tol * abs(final) if abs(final) > 0 else tol
+    lo, hi = final - band, final + band
+    inside = (y >= lo) & (y <= hi)
+    for i in range(len(t)):
+        if inside[i] and inside[i:].all():
+            return float(t[i])
+    return float(t[-1])
 
 def interp_x_at_y(x: np.ndarray, y: np.ndarray, target: float) -> float:
-    """
-    Find x value where y == target using local linear interpolation near the closest point.
-    Matches the generator's intent (simple neighbor interpolation).
-    """
-    x = np.asarray(x)
-    y = np.asarray(y)
-    if x.size == 0 or y.size == 0:
-        return 0.0
-
     idx = int(np.argmin(np.abs(y - target)))
     if y[idx] == target:
         return float(x[idx])
-
     if idx == 0:
         j = 1
     elif idx == len(y) - 1:
@@ -101,141 +67,161 @@ def interp_x_at_y(x: np.ndarray, y: np.ndarray, target: float) -> float:
             j = idx - 1
         else:
             j = idx + 1
-
     x1, x2 = float(x[idx]), float(x[j])
     y1, y2 = float(y[idx]), float(y[j])
     if y2 == y1:
         return float(x1)
-
     return float(x1 + (target - y1) * (x2 - x1) / (y2 - y1))
-
-
-def diode_turn_on_voltage_fixed_point(Is: float, nVt: float, Rs: float, target_I: float) -> float:
-    """
-    Compute diode V at a target current using a fixed-point evaluation of I(V) on a fixed grid:
-      I = Is*(exp((V - I*Rs)/nVt) - 1)
-
-    IMPORTANT: This baseline does NOT include the generator's added measurement noise on I(V),
-    so it is an expectation/nominal baseline. We therefore use a larger tolerance in scoring.
-    """
-    if Is <= 0 or nVt <= 0 or Rs < 0 or target_I <= 0:
-        return float("nan")
-
-    v = np.linspace(0.0, 1.2, 300)  # match generator grid
-    i_a = np.zeros_like(v)
-
-    for k in range(len(v)):
-        Vk = float(v[k])
-        Ik = 0.0
-        for _ in range(40):  # match generator iteration count
-            Ik = Is * (math.exp((Vk - Ik * Rs) / nVt) - 1.0)
-            Ik = max(Ik, 0.0)
-        i_a[k] = Ik
-
-    # If target isn't reached, fall back to max achievable current in this range.
-    if float(np.max(i_a)) < target_I:
-        target_I = float(np.max(i_a))
-        if target_I <= 0:
-            return float(v[-1])
-
-    return interp_x_at_y(v, i_a, target_I)
-
-
-def transfer_expected_gain(gain: float) -> float:
-    return float(gain)
-
-
-def transfer_expected_vsat(Vsat: float) -> float:
-    return float(Vsat)
-
 
 def compare(a: float, b: float) -> float:
     return float(abs(a - b))
 
-
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--jsonl", type=str, default="plotchain_v1.jsonl", help="Path to plotchain_v1.jsonl")
-    ap.add_argument("--out_csv", type=str, default="", help="Optional: write per-field comparisons to CSV")
+    ap.add_argument("--jsonl", type=str, default="plotchain_v2.jsonl")
+    ap.add_argument("--out_csv", type=str, default="")
+    ap.add_argument("--abs_tol", type=float, default=1e-5)
     args = ap.parse_args()
 
     items = load_jsonl(Path(args.jsonl))
-
-    # Per-field tolerances: (abs_tol, rel_tol)
-    # Synthetic plots include noise for some types; some baselines are approximations.
-    TOLS: Dict[Tuple[str, str], Tuple[float, float]] = {
-        ("step_response", "percent_overshoot"): (2.0, 0.15),   # formula vs simulation
-        ("step_response", "settling_time_s"):   (0.50, 0.35),  # approximation vs simulation
-
-        ("bode_magnitude", "dc_gain_db"):       (0.02, 0.01),
-        ("bode_magnitude", "cutoff_hz"):        (2.0, 0.02),
-
-        ("fft_spectrum", "dominant_frequency_hz"): (2.0, 0.02),
-
-        ("time_waveform", "frequency_hz"):      (0.5, 0.01),
-        ("time_waveform", "vpp_v"):             (0.25, 0.10),
-
-        ("iv_curve", "resistance_ohm"):         (2.0, 0.02),
-
-        # Key change: diode turn-on uses a wider tolerance due to injected current noise + interpolation.
-        # Your observed discrepancy (~0.124 V) is consistent with noisy thresholding in the steep region.
-        ("iv_curve", "turn_on_voltage_v_at_target_i"): (0.15, 0.20),
-
-        ("transfer_characteristic", "small_signal_gain"): (0.05, 0.02),
-        ("transfer_characteristic", "saturation_v"):       (0.05, 0.02),
-    }
-
     rows = []
+
     for it in items:
         typ = it["type"]
+        item_seed = int(it["item_seed"])
         gt = it["ground_truth"]
         pp = it["plot_params"]
+        gen = it.get("generation", {})
 
         pred: Dict[str, float] = {}
 
         if typ == "step_response":
             zeta = float(pp["zeta"])
             wn = float(pp["wn_rad_s"])
-            pred["percent_overshoot"] = percent_overshoot_from_zeta(zeta)
-            pred["settling_time_s"] = settling_time_2pct_approx(zeta, wn)
+            t_end = float(gen["t_end_s"])
+            n = int(gen["n_samples"])
+            t = np.linspace(0, t_end, n)
+            sys = signal.TransferFunction([wn**2], [1, 2*zeta*wn, wn**2])
+            tout, y = signal.step(sys, T=t)
+            final = float(y[-1])
+            peak = float(np.max(y))
+            overshoot = 0.0 if final == 0 else max(0.0, (peak - final) / abs(final) * 100.0)
+            ts = settling_time_2pct(tout, y, final, tol=0.02)
+            pred["percent_overshoot"] = float(np.round(overshoot, 6))
+            pred["settling_time_s"] = float(np.round(ts, 6))
+            pred["steady_state"] = float(np.round(final, 6))
 
         elif typ == "bode_magnitude":
             K = float(pp["K"])
-            fc = float(pp["fc_hz"])
-            pred["dc_gain_db"] = bode_dc_gain_db(K)
-            pred["cutoff_hz"] = bode_cutoff_hz(fc)
+            f_min = float(gen["f_min_hz"])
+            f_max = float(gen["f_max_hz"])
+            n = int(gen["n_points"])
+            f = np.logspace(math.log10(f_min), math.log10(f_max), n)
+            w = 2 * math.pi * f
+            tau = float(pp["tau_s"])
+            sys = signal.TransferFunction([K], [tau, 1.0])
+            _, mag_db, _ = signal.bode(sys, w=w)
+            dc_gain_db = float(20 * math.log10(K))
+            target = dc_gain_db - 3.0
+            f_cut = interp_x_at_y(f, mag_db, target)
+            pred["dc_gain_db"] = float(np.round(dc_gain_db, 6))
+            pred["cutoff_hz"] = float(np.round(float(f_cut), 6))
 
         elif typ == "fft_spectrum":
+            rp = rng_for(item_seed, "params")
+            rn = rng_for(item_seed, "noise_fft")
+            fs = int(pp["fs_hz"])
+            duration_s = float(pp["duration_s"])
+            N = int(gen["N"])
+            # recreate exact grid
+            t = np.arange(N, dtype=float) / fs
+
             tones = list(pp["tones_hz"])
-            amps = list(pp["amps"])
-            pred["dominant_frequency_hz"] = fft_expected_dominant_freq(tones, amps)
+            amps = np.array(pp["amps"], dtype=float)
+            x = np.zeros_like(t)
+            for a, f0 in zip(amps, tones):
+                x += float(a) * np.sin(2 * math.pi * float(f0) * t)
+
+            noise_std = float(pp["noise_std"])
+            x_noisy = x + rn.normal(0.0, noise_std, size=N)
+
+            X = np.fft.rfft(x_noisy)
+            f_axis = np.fft.rfftfreq(N, d=1.0 / fs)
+            mag = np.abs(X) / (N / 2)
+            idx = int(np.argmax(mag[1:]) + 1)
+            dom_f = float(f_axis[idx])
+            pred["dominant_frequency_hz"] = float(np.round(dom_f, 6))
 
         elif typ == "time_waveform":
-            pred["frequency_hz"] = float(pp["f0_hz"])
-            pred["vpp_v"] = waveform_expected_vpp(float(pp["A"]))
+            rp = rng_for(item_seed, "params")
+            rn = rng_for(item_seed, "noise_wave")
+            fs = int(pp["fs_hz"])
+            duration_s = float(gen["duration_s"])
+            N = int(gen["N"])
+            t = np.arange(N, dtype=float) / fs
+
+            wave_type = str(pp["wave_type"])
+            f0 = float(pp["f0_hz"])
+            A = float(pp["A"])
+            if wave_type == "sine":
+                y = A * np.sin(2 * math.pi * f0 * t)
+            elif wave_type == "square":
+                duty = float(pp["duty"])
+                y = A * signal.square(2 * math.pi * f0 * t, duty=duty)
+            elif wave_type == "triangle":
+                y = A * signal.sawtooth(2 * math.pi * f0 * t, width=0.5)
+            else:
+                tri = signal.sawtooth(2 * math.pi * f0 * t, width=0.5)
+                y = A * np.clip(tri * 1.4, -1, 1)
+
+            noise_std = float(pp["noise_std"])
+            y_noisy = y + rn.normal(0.0, noise_std, size=N)
+            vpp = float(np.max(y_noisy) - np.min(y_noisy))
+            pred["frequency_hz"] = float(np.round(f0, 6))
+            pred["vpp_v"] = float(np.round(vpp, 6))
 
         elif typ == "iv_curve":
-            kind = pp["kind"]
+            kind = str(pp["kind"])
+            v_min = float(gen["v_min"])
+            v_max = float(gen["v_max"])
+            npts = int(gen["n_points"])
+            v = np.linspace(v_min, v_max, npts)
+
+            rn = rng_for(item_seed, "noise_iv")
+
             if kind == "resistor":
-                pred["resistance_ohm"] = float(pp["R_ohm"])
+                pred["resistance_ohm"] = float(np.round(float(pp["R_ohm"]), 6))
             else:
                 Is = float(pp["Is"])
                 nVt = float(pp["nVt"])
                 Rs = float(pp["Rs"])
-                target_I = float(gt.get("target_current_a", 0.01))
-                pred["turn_on_voltage_v_at_target_i"] = diode_turn_on_voltage_fixed_point(Is, nVt, Rs, target_I)
+                iters = int(gen["fixed_point_iters"])
+                i_a = np.zeros_like(v)
+                for k in range(len(v)):
+                    Vk = float(v[k])
+                    Ik = 0.0
+                    for _ in range(iters):
+                        Ik = Is * (math.exp((Vk - Ik * Rs) / nVt) - 1.0)
+                        Ik = max(Ik, 0.0)
+                    i_a[k] = Ik
+
+                noise_std = float(pp["noise_std"])
+                i_noisy = i_a + rn.normal(0.0, noise_std, size=len(v))
+
+                target_I = float(gt["target_current_a"])
+                v_on = interp_x_at_y(v, i_noisy, target_I)
+                pred["turn_on_voltage_v_at_target_i"] = float(np.round(float(v_on), 6))
+                pred["target_current_a"] = float(target_I)
 
         elif typ == "transfer_characteristic":
-            pred["small_signal_gain"] = transfer_expected_gain(float(pp["gain"]))
-            pred["saturation_v"] = transfer_expected_vsat(float(pp["Vsat"]))
+            pred["small_signal_gain"] = float(np.round(float(pp["gain"]), 6))
+            pred["saturation_v"] = float(np.round(float(pp["Vsat"]), 6))
 
+        # Compare all fields present in gt that we predicted
         for k, pv in pred.items():
             gv = float(gt[k])
             abs_err = compare(pv, gv)
-            abs_tol, rel_tol = TOLS.get((typ, k), (0.0, 0.0))
-            rel_err = abs_err / max(abs(gv), 1e-12)
-            passed = (abs_err <= abs_tol) or (rel_err <= rel_tol)
-
+            passed = abs_err <= args.abs_tol
             rows.append({
                 "id": it["id"],
                 "type": typ,
@@ -243,9 +229,7 @@ def main():
                 "ground_truth": gv,
                 "baseline_pred": pv,
                 "abs_err": abs_err,
-                "rel_err": rel_err,
-                "abs_tol": abs_tol,
-                "rel_tol": rel_tol,
+                "abs_tol": args.abs_tol,
                 "pass": passed,
             })
 
@@ -256,32 +240,27 @@ def main():
 
     summary = (
         df.groupby(["type", "field"])
-          .agg(n=("pass", "size"),
-               pass_rate=("pass", "mean"),
-               mean_abs_err=("abs_err", "mean"),
-               max_abs_err=("abs_err", "max"))
+          .agg(n=("pass", "size"), pass_rate=("pass", "mean"),
+               mean_abs_err=("abs_err", "mean"), max_abs_err=("abs_err", "max"))
           .reset_index()
           .sort_values(["type", "field"])
     )
 
-    print("\n=== PlotChain v1 Baseline Validity Report ===\n")
+    print("\n=== PlotChain v2 Baseline Validity Report ===\n")
     print(summary.to_string(index=False))
-
     overall = float(df["pass"].mean())
     print(f"\nOverall pass rate: {overall*100:.1f}% ({df['pass'].sum()}/{len(df)})")
 
-    # Print any failures (debug-friendly)
     fails = df[df["pass"] == False]
     if not fails.empty:
         print("\n=== FAIL DETAILS ===\n")
-        print(fails[["id","type","field","ground_truth","baseline_pred","abs_err","rel_err","abs_tol","rel_tol"]].to_string(index=False))
+        print(fails.to_string(index=False))
 
     if args.out_csv:
         out = Path(args.out_csv)
         out.parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(out, index=False)
         print(f"\nWrote per-item comparisons to: {out}")
-
 
 if __name__ == "__main__":
     main()
