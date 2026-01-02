@@ -68,6 +68,17 @@ def _render(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any
                 cur = Is * (math.exp((V - cur * Rs) / max(nVt, 1e-12)) - 1.0)
             I[idx] = cur
         ax.plot(v, I)
+
+        # Measurement aids: read V at a target current (disabled for edge cases)
+        b = baseline_from_params(pp)
+        target_I = float(b.get("target_current_a", pp.get("target_current_a", 0.0)))
+        Vt = float(b.get("turn_on_voltage_v_at_target_i", 0.0))
+        if getattr(meta, "difficulty", "clean") != "edge":
+            ax.axhline(target_I, linestyle="--", linewidth=1.0, alpha=0.6)
+            ax.axvline(Vt, linestyle="--", linewidth=1.0, alpha=0.6)
+            ax.scatter([Vt], [target_I], s=24)
+            ax.text(Vt, target_I, "  target", fontsize=9, va="bottom", ha="left")
+
         x_min, x_max = 0.0, vmax
         y_min, y_max = 0.0, float(np.max(I))
 

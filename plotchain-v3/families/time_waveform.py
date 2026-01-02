@@ -12,21 +12,27 @@ TYPE = "time_waveform"
 DEFAULT_N = 15
 
 FINAL_FIELDS = ["frequency_hz", "vpp_v"]
-CHECKPOINT_FIELDS = ["cp_period_s", "cp_vmax_v", "cp_vmin_v", "cp_duty"]
+CHECKPOINT_FIELDS = ["cp_period_s", "cp_vmax_v", "cp_vmin_v"]
 
 
 def baseline_from_params(pp: Dict[str, Any]) -> Dict[str, float]:
     f0 = float(pp["f0_hz"])
     A = float(pp["A"])
-    duty = float(pp.get("duty", 0.5))
-    return {
+
+    gt: Dict[str, float] = {
         "frequency_hz": float(f0),
         "vpp_v": float(2.0 * A),
         "cp_period_s": float(1.0 / max(f0, 1e-12)),
         "cp_vmax_v": float(A),
         "cp_vmin_v": float(-A),
-        "cp_duty": float(duty),
     }
+
+    # Duty cycle is only meaningful for square waves. Keep it out of non-square items
+    # to avoid scoring "undefined" quantities.
+    if str(pp.get("wave_type", "")) == "square":
+        gt["cp_duty"] = float(pp.get("duty", 0.5))
+
+    return gt
 
 
 def _wave(t: np.ndarray, wave_type: str, f0: float, A: float, duty: float) -> np.ndarray:
@@ -126,6 +132,10 @@ def generate(out_dir: Path, master_seed: int, n: int, images_root: Path) -> List
             "Return JSON numeric values."
         )
 
+        cp_fields = list(CHECKPOINT_FIELDS)
+        if wave_type == "square":
+            cp_fields.append("cp_duty")
+
         items.append({
             "id": f"{TYPE}_{i:03d}",
             "type": TYPE,
@@ -134,7 +144,7 @@ def generate(out_dir: Path, master_seed: int, n: int, images_root: Path) -> List
             "ground_truth": gt,
             "plot_params": pp,
             "generation": {"seed": seed, "difficulty": difficulty, "edge_tag": edge_tag,
-                           "final_fields": FINAL_FIELDS, "checkpoint_fields": CHECKPOINT_FIELDS, **axis_meta},
+                           "final_fields": FINAL_FIELDS, "checkpoint_fields": cp_fields, **axis_meta},
         })
 
     return items

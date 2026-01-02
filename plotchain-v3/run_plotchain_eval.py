@@ -623,24 +623,35 @@ def _score_from_raw_files(
                     error=rec.get("error", None),
                     tols=tols,
                 )
+                # Attach dataset metadata for analysis
+                gen = it.get('generation', {}) or {}
+                difficulty = it.get('difficulty', gen.get('difficulty', ''))
+                edge_tag = it.get('edge_tag', gen.get('edge_tag', ''))
+                edge_case = bool(edge_tag) or (difficulty == 'edge')
+                for r in rows:
+                    r['difficulty'] = difficulty
+                    r['edge_tag'] = edge_tag
+                    r['edge_case'] = edge_case
+                    r['is_checkpoint'] = str(r.get('field', '')).startswith('cp_')
                 all_rows.extend(rows)
     return all_rows
 
 
 def _write_reports(df: pd.DataFrame, out_dir: Path) -> None:
-
-        # Ensure is_checkpoint exists (older runs may not include it)
-    if "is_checkpoint" not in df.columns:
-        df["is_checkpoint"] = df["field"].astype(str).str.startswith("cp_")
-
     out_dir.mkdir(parents=True, exist_ok=True)
 
     per_item_csv = out_dir / "per_item.csv"
     df.to_csv(per_item_csv, index=False)
 
+    # Backward compatibility: older runs may not include is_checkpoint
+    if "is_checkpoint" not in df.columns:
+        df["is_checkpoint"] = df["field"].astype(str).str.startswith("cp_")
+
     # --- Field-level summary (keeps checkpoints separate) ---
     df_scoped = df.copy()
-
+    # Backward compatibility: older score files may not include is_checkpoint
+    if "is_checkpoint" not in df_scoped.columns:
+        df_scoped["is_checkpoint"] = df_scoped["field"].astype(str).str.startswith("cp_")
     df_scoped["scope"] = np.where(df_scoped["is_checkpoint"], "checkpoint", "final")
     summary = (
         df_scoped.groupby(["provider", "model", "type", "scope", "field"])
@@ -667,11 +678,11 @@ def _write_reports(df: pd.DataFrame, out_dir: Path) -> None:
         mean_rel_err=("rel_err", "mean"),
         mean_latency_s=("latency_s", "mean"),
     )
-    overall_final = df[df["is_checkpoint"] == False].groupby(["provider", "model"]).agg(
+    overall_final = df_scoped[df_scoped["is_checkpoint"] == False].groupby(["provider", "model"]).agg(
         final_n=("pass", "size"),
         final_pass_rate=("pass", "mean"),
     )
-    overall_cp = df[df["is_checkpoint"] == True].groupby(["provider", "model"]).agg(
+    overall_cp = df_scoped[df_scoped["is_checkpoint"] == True].groupby(["provider", "model"]).agg(
         checkpoint_n=("pass", "size"),
         checkpoint_pass_rate=("pass", "mean"),
     )

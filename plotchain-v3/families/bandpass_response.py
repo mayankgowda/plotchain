@@ -56,6 +56,21 @@ def _render(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any
         ax.grid(True, which="both", alpha=0.3)
         peak_db = float(np.max(mag_db))
         ax.axhline(peak_db - 3.0, linestyle="--", linewidth=1.1, alpha=0.7)
+
+    # Measurement aids (disabled for edge cases)
+    b = baseline_from_params(pp)
+    f1 = float(b['cp_f1_3db_hz'])
+    f2 = float(b['cp_f2_3db_hz'])
+    f0 = float(b['resonance_hz'])
+    if getattr(meta, 'difficulty', 'clean') != 'edge':
+        ax.axvline(f1, linestyle='--', linewidth=1.0, alpha=0.75)
+        ax.axvline(f2, linestyle='--', linewidth=1.0, alpha=0.75)
+        ax.scatter([f0], [peak_db], s=24)
+        y_top = float(np.max(mag_db))
+        ax.text(f1, y_top, 'f1', fontsize=9, va='bottom', ha='center')
+        ax.text(f2, y_top, 'f2', fontsize=9, va='bottom', ha='center')
+        ax.text(f0, y_top, 'f0', fontsize=9, va='bottom', ha='center')
+
         ax.text(fmin, peak_db - 3.0, " -3 dB", va="bottom", ha="left", fontsize=9)
     ax.tick_params(labelsize=10)
 

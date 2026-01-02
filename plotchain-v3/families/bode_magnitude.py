@@ -54,6 +54,17 @@ def _render(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any
     # Helper markers: cutoff level and a query frequency (f_q) for a checkpoint read.
     dc_gain_db = 20.0 * np.log10(max(K, 1e-12))
     ax.axhline(dc_gain_db - 3.0103, linestyle="--", linewidth=1.0, alpha=0.6)
+
+    # Measurement aids (disabled for edge cases)
+    b = baseline_from_params(pp)
+    fc = float(b['cutoff_hz'])
+    mag_fc = float(b['cp_mag_at_fc_db'])
+    if getattr(meta, 'difficulty', 'clean') != 'edge':
+        ax.axvline(fc, linestyle='--', linewidth=1.0, alpha=0.6)
+        ax.scatter([fc], [mag_fc], s=22)
+        y_top = float(np.max(mag))
+        ax.text(fc, y_top, 'fc', fontsize=9, va='bottom', ha='center')
+
     ax.axvline(fq, linestyle=":", linewidth=1.2, alpha=0.9)
     ax.text(fq, float(np.min(mag)), " f_q", rotation=90, va="bottom", ha="left", fontsize=9)
 

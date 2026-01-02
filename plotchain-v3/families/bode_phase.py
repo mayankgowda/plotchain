@@ -44,6 +44,17 @@ def _render(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any
         ax.grid(True, which="both", alpha=0.3)
 
     # Query frequency marker (f_q) for a checkpoint read.
+    # Measurement aids (disabled for edge cases)
+    b = baseline_from_params(pp)
+    fc = float(b["cutoff_hz"])
+    phase_fc = float(b["cp_phase_deg_at_fc"])
+    if getattr(meta, "difficulty", "clean") != "edge":
+        ax.axhline(-45.0, linestyle="--", linewidth=1.0, alpha=0.6)
+        ax.axvline(fc, linestyle="--", linewidth=1.0, alpha=0.6)
+        ax.scatter([fc], [phase_fc], s=22)
+        y_top = float(np.max(phase))
+        ax.text(fc, y_top, "fc", fontsize=9, va="bottom", ha="center")
+
     ax.axvline(fq, linestyle=":", linewidth=1.2, alpha=0.9)
     ax.text(fq, float(np.min(phase)), " f_q", rotation=90, va="bottom", ha="left", fontsize=9)
 
