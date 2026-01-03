@@ -51,11 +51,40 @@ def stable_int_seed(master_seed: int, family: str, idx: int) -> int:
 
 
 def difficulty_plan(n: int) -> List[str]:
-    # 60% clean, 30% moderate, 10% edge (deterministic ordering)
-    n_clean = int(round(0.6 * n))
-    n_mod = int(round(0.3 * n))
-    n_edge = max(0, n - n_clean - n_mod)
-    return (["clean"] * n_clean) + (["moderate"] * n_mod) + (["edge"] * n_edge)
+    """
+    Deterministic difficulty allocation.
+    Target split: 40% clean, 30% moderate, 30% edge.
+    We also shuffle deterministically to avoid ordering bias (important for --limit debugging).
+    """
+    if n <= 0:
+        return []
+
+    seed = 42
+
+    # target ratios
+    clean_frac = 0.40
+    moderate_frac = 0.30
+
+    # stable rounding, always sums to n
+    n_clean = int(round(clean_frac * n))
+    n_mod = int(round(moderate_frac * n))
+    n_edge = n - n_clean - n_mod
+    if n_edge < 0:
+        # rare rounding edge-case: trim moderate then clean
+        deficit = -n_edge
+        take = min(deficit, n_mod)
+        n_mod -= take
+        deficit -= take
+        take = min(deficit, n_clean)
+        n_clean -= take
+        n_edge = 0
+
+    plan = (["clean"] * n_clean) + (["moderate"] * n_mod) + (["edge"] * n_edge)
+
+    rng = np.random.default_rng(seed)
+    rng.shuffle(plan)
+    return plan
+
 
 
 def axis_ticks_linear(xmin: float, xmax: float, n: int = 6) -> List[float]:

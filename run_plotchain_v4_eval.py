@@ -215,40 +215,62 @@ Return ONLY a single JSON object matching this schema (numbers or null; no strin
 Notes:
 - Use cp_* fields as intermediate plot reads (checkpoints).
 - If you cannot determine a value, output null for that key.
+- All values must be JSON numbers (e.g., 1.6667). Do NOT write fractions like 1025/615 or any expressions.
+- Do not include any text in your response; only return the JSON object.
 """.strip()
 
 
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
+# Matches numeric divisions like: 1025/615 or 1025 / 615 or -3.2/0.8
+_FRACTION_RE = re.compile(r"(?<![\w.])(-?\d+(?:\.\d+)?)\s*/\s*(-?\d+(?:\.\d+)?)(?![\w.])")
+
+def _sanitize_json_blob(blob: str) -> str:
+    s = blob.strip()
+
+    # 1) Remove trailing commas before } or ]
+    s = re.sub(r",\s*([}\]])", r"\1", s)
+
+    # 2) Replace simple numeric fractions with decimal numbers
+    #    Do multiple passes in case there are several fractions.
+    for _ in range(10):
+        m = _FRACTION_RE.search(s)
+        if not m:
+            break
+        a = float(m.group(1))
+        b = float(m.group(2))
+        # Avoid divide-by-zero; if it happens, leave as-is (parsing will fail, which is fine).
+        if abs(b) < 1e-18:
+            break
+        val = a / b
+        # Use a stable decimal representation
+        rep = f"{val:.12g}"
+        s = s[:m.start()] + rep + s[m.end():]
+
+    return s
 
 def extract_first_json(text: str) -> Optional[Dict[str, Any]]:
     if not text:
         return None
-    # try direct
+
+    # Quick path: exact JSON
     try:
         obj = json.loads(text)
         return obj if isinstance(obj, dict) else None
     except Exception:
         pass
-    # find first {...}
-    m = _JSON_RE.search(text)
+
+    m = _JSON_CANDIDATE_RE.search(text)
     if not m:
         return None
+
     blob = m.group(0)
-    # try parse blob
+    blob = _sanitize_json_blob(blob)
+
     try:
         obj = json.loads(blob)
         return obj if isinstance(obj, dict) else None
     except Exception:
-        pass
-    # trim
-    for end in range(len(blob), 1, -1):
-        try:
-            obj = json.loads(blob[:end])
-            if isinstance(obj, dict):
-                return obj
-        except Exception:
-            continue
-    return None
+        return None
 
 
 def _to_float(x: Any) -> Optional[float]:
