@@ -1,10 +1,20 @@
-#!/usr/bin/env python3
 # generate_plotchain_v4.py
+"""
+PlotChain v4 (audited): deterministic synthetic engineering-plot dataset generator.
+
+Key goals:
+- Irrefutable ground truth: every target value is computed deterministically from the same
+  underlying signals/curves that are plotted, with independent audit checks.
+- Human-readable targets: final-answer fields avoid awkward fractional bin artifacts
+  (e.g., FFT bin = 0.9765625 Hz) by choosing parameter grids aligned to plot axes.
+- Difficulty split: 40% clean, 30% moderate, 30% edge (deterministic via seed).
+- Edge cases remain *readable* (reduced grid/shorter window/noisier), but the asked
+  quantities remain observable within the plotted window.
+"""
+
 from __future__ import annotations
 
 import argparse
-import csv
-import hashlib
 import json
 import math
 from dataclasses import dataclass
@@ -13,103 +23,50 @@ from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
-# --- matplotlib (headless safe) ---
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+
+# ----------------------------
+# Global configuration
+# ----------------------------
+
+VERSION = "v4-audited"
+OUT_JSONL_NAME = "plotchain_v4.jsonl"
+IMAGES_DIRNAME = "images"
+
+# Difficulty mix (percent)
+DIFFICULTY_SPLIT = {"clean": 0.40, "moderate": 0.30, "edge": 0.30}
+
+# Determinism
+DEFAULT_MASTER_SEED = 42
+DIFFICULTY_PLAN_SEED = 42
+
+# Plot rendering
+FIG_W, FIG_H = 6.0, 3.6
+DPI = 160
+
+# Formatting/rounding rules for *final answer fields* (to keep targets human-friendly)
+# checkpoint fields may be more precise.
+ANSWER_FORMAT: Dict[str, Dict[str, int]] = {
+    # family -> field -> decimals (0 means integer)
+    "step_response": {"percent_overshoot": 1, "settling_time_s": 2, "steady_state": 0},
+    "bode_magnitude": {"dc_gain_db": 0, "cutoff_hz": 0},
+    "bode_phase": {"cutoff_hz": 0, "phase_deg_at_10fc": 1},
+    "bandpass_response": {"resonance_hz": 0, "bandwidth_hz": 0},
+    "time_waveform": {"frequency_hz": 0, "vpp_v": 0},
+    "fft_spectrum": {"dominant_frequency_hz": 0, "secondary_frequency_hz": 0},
+    "spectrogram": {"f1_hz": 0, "f2_hz": 0, "cp_duration_s": 2, "switch_time_s": 2},
+    "iv_curve": {"resistance_ohm": 0, "turn_on_voltage_v_at_target_i": 3},
+    "transfer_characteristic": {"small_signal_gain": 2, "saturation_v": 0},
+    "pole_zero": {"wn_rad_s": 0, "zeta": 2},
+}
+
+# Tolerances for internal audit (not scoring)
+AUDIT_ABS_TOL = 1e-6
+AUDIT_REL_TOL = 1e-6
 
 
-# =========================
-# Global style (fairness)
-# =========================
-FIGSIZE = (6.0, 3.6)
-DPI = 200
-LINEWIDTH = 2.0
-FONTSIZE = 10
-
-
-def set_mpl_style() -> None:
-    plt.rcParams.update({
-        "figure.dpi": DPI,
-        "savefig.dpi": DPI,
-        "font.size": FONTSIZE,
-        "axes.titlesize": FONTSIZE + 1,
-        "axes.labelsize": FONTSIZE,
-        "xtick.labelsize": FONTSIZE - 1,
-        "ytick.labelsize": FONTSIZE - 1,
-        "lines.linewidth": LINEWIDTH,
-    })
-
-
-# =========================
-# Common utilities
-# =========================
-def stable_int_seed(master_seed: int, family: str, idx: int) -> int:
-    s = f"{master_seed}|{family}|{idx}".encode("utf-8")
-    h = hashlib.sha256(s).hexdigest()
-    return int(h[:16], 16)  # 64-bit int
-
-
-def difficulty_plan(n: int) -> List[str]:
-    """
-    Deterministic difficulty allocation.
-    Target split: 40% clean, 30% moderate, 30% edge.
-    We also shuffle deterministically to avoid ordering bias (important for --limit debugging).
-    """
-    if n <= 0:
-        return []
-
-    seed = 42
-
-    # target ratios
-    clean_frac = 0.40
-    moderate_frac = 0.30
-
-    # stable rounding, always sums to n
-    n_clean = int(round(clean_frac * n))
-    n_mod = int(round(moderate_frac * n))
-    n_edge = n - n_clean - n_mod
-    if n_edge < 0:
-        # rare rounding edge-case: trim moderate then clean
-        deficit = -n_edge
-        take = min(deficit, n_mod)
-        n_mod -= take
-        deficit -= take
-        take = min(deficit, n_clean)
-        n_clean -= take
-        n_edge = 0
-
-    plan = (["clean"] * n_clean) + (["moderate"] * n_mod) + (["edge"] * n_edge)
-
-    rng = np.random.default_rng(seed)
-    rng.shuffle(plan)
-    return plan
-
-
-
-def axis_ticks_linear(xmin: float, xmax: float, n: int = 6) -> List[float]:
-    if n < 2:
-        return [xmin, xmax]
-    step = (xmax - xmin) / (n - 1)
-    return [xmin + i * step for i in range(n)]
-
-
-def write_jsonl(path: Path, items: List[Dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        for it in items:
-            f.write(json.dumps(it, ensure_ascii=False) + "\n")
-
-
-def float_close(a: float, b: float, abs_tol: float = 1e-12, rel_tol: float = 1e-12) -> bool:
-    return abs(a - b) <= max(abs_tol, rel_tol * max(abs(a), abs(b), 1e-12))
-
-
-def save_fig(fig, out_path: Path) -> None:
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, bbox_inches="tight")
-    plt.close(fig)
-
+# ----------------------------
+# Utilities
+# ----------------------------
 
 @dataclass(frozen=True)
 class ItemMeta:
@@ -118,493 +75,511 @@ class ItemMeta:
     seed: int
 
 
-# =========================
-# Family registry
-# =========================
-FAMILIES = [
-    "step_response",
-    "bode_magnitude",
-    "bode_phase",
-    "bandpass_response",
-    "time_waveform",
-    "fft_spectrum",
-    "spectrogram",
-    "iv_curve",
-    "transfer_characteristic",
-    "pole_zero",
-]
+def stable_int_seed(master_seed: int, family: str, idx: int) -> int:
+    """Stable per-item seed from (master_seed, family, idx)."""
+    s = f"{master_seed}|{family}|{idx}".encode("utf-8")
+    # simple 32-bit hash
+    h = 2166136261
+    for b in s:
+        h ^= b
+        h = (h * 16777619) & 0xFFFFFFFF
+    return int(h)
 
 
-# =========================
-# 1) Step response
-# =========================
-def step_baseline(pp: Dict[str, Any]) -> Dict[str, float]:
+def quantize_value(family: str, field: str, value: float) -> Any:
+    """Quantize final-answer fields to human-friendly decimals (ints when decimals==0)."""
+    dec = ANSWER_FORMAT.get(family, {}).get(field, None)
+    if dec is None:
+        return float(value)
+    if dec == 0:
+        return int(round(float(value)))
+    return float(round(float(value), int(dec)))
+
+
+def assert_close(name: str, a: float, b: float, abs_tol: float = AUDIT_ABS_TOL, rel_tol: float = AUDIT_REL_TOL) -> None:
+    if a is None or b is None or (isinstance(a, float) and math.isnan(a)) or (isinstance(b, float) and math.isnan(b)):
+        raise ValueError(f"[audit] {name}: NaN/None encountered (a={a}, b={b})")
+    da = abs(float(a) - float(b))
+    if da <= abs_tol:
+        return
+    denom = max(abs(float(b)), 1e-12)
+    if da / denom <= rel_tol:
+        return
+    raise ValueError(f"[audit] {name}: mismatch a={a} b={b} abs_err={da}")
+
+
+def nice_num(x: float) -> float:
+    """Return a 'nice' number approximately equal to x (1,2,5 * 10^k)."""
+    if x <= 0:
+        return 1.0
+    expv = math.floor(math.log10(x))
+    f = x / (10**expv)
+    if f < 1.5:
+        nf = 1.0
+    elif f < 3.5:
+        nf = 2.0
+    elif f < 7.5:
+        nf = 5.0
+    else:
+        nf = 10.0
+    return nf * (10**expv)
+
+
+def nice_ticks_linear(xmin: float, xmax: float, n: int = 6) -> List[float]:
+    if xmax <= xmin:
+        return [xmin, xmax]
+    rng = xmax - xmin
+    step = nice_num(rng / max(n - 1, 1))
+    start = math.floor(xmin / step) * step
+    ticks = [start + i * step for i in range(n + 2)]
+    ticks = [t for t in ticks if (t >= xmin - 1e-9 and t <= xmax + 1e-9)]
+    # avoid duplicate due to float noise
+    out = []
+    for t in ticks:
+        if not out or abs(t - out[-1]) > 1e-9:
+            out.append(float(t))
+    if len(out) < 2:
+        out = [float(xmin), float(xmax)]
+    return out
+
+
+def save_figure(fig, out_path: Path) -> None:
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=DPI)
+    # fig closed by caller
+
+
+def make_difficulty_plan(n: int, seed: int = DIFFICULTY_PLAN_SEED) -> List[str]:
+    """Deterministic 40/30/30 split."""
+    n_clean = int(round(n * DIFFICULTY_SPLIT["clean"]))
+    n_moderate = int(round(n * DIFFICULTY_SPLIT["moderate"]))
+    n_edge = n - n_clean - n_moderate
+    plan = (["clean"] * n_clean) + (["moderate"] * n_moderate) + (["edge"] * n_edge)
+    rng = np.random.default_rng(seed)
+    rng.shuffle(plan)
+    return plan
+
+
+def _ensure_images_root(images_root: Path) -> None:
+    images_root.mkdir(parents=True, exist_ok=True)
+
+
+def _rel_image_path(images_root: Path, abs_image_path: Path) -> str:
+    """Return POSIX-style relative path from images_root parent (dataset dir)."""
+    try:
+        rel = abs_image_path.relative_to(images_root.parent)
+    except Exception:
+        rel = abs_image_path
+    return str(rel).replace("\\", "/")
+
+
+# ----------------------------
+# Family: Step Response (2nd-order underdamped)
+# ----------------------------
+
+def _step_response_curve(t: np.ndarray, zeta: float, wn: float, K: float) -> np.ndarray:
+    wd = wn * math.sqrt(max(1.0 - zeta * zeta, 1e-12))
+    phi = math.atan2(math.sqrt(max(1.0 - zeta * zeta, 1e-12)), max(zeta, 1e-12))
+    y = K * (1.0 - (1.0 / math.sqrt(max(1.0 - zeta * zeta, 1e-12))) * np.exp(-zeta * wn * t) * np.sin(wd * t + phi))
+    return y
+
+
+def _step_metrics_numeric(zeta: float, wn: float, K: float) -> Dict[str, float]:
+    # compute on a sufficiently long horizon to capture settling
+    # use heuristic upper bound: 12/(zeta*wn)
+    t_end = 12.0 / max(zeta * wn, 1e-9)
+    t = np.linspace(0.0, t_end, 40000)
+    y = _step_response_curve(t, zeta, wn, K)
+
+    steady = float(K)
+    peak = float(np.max(y))
+    overshoot = max(0.0, (peak - steady) / max(steady, 1e-12) * 100.0)
+
+    lo, hi = 0.98 * steady, 1.02 * steady
+    outside = np.where((y < lo) | (y > hi))[0]
+    if outside.size == 0:
+        ts = 0.0
+    else:
+        last = int(outside[-1])
+        ts = float(t[min(last + 1, len(t) - 1)])
+    # peak time (exact) for underdamped:
+    wd = wn * math.sqrt(max(1.0 - zeta * zeta, 1e-12))
+    tp = math.pi / max(wd, 1e-12)
+
+    return {"steady_state": steady, "percent_overshoot": overshoot, "settling_time_s": ts, "cp_peak_time_s": tp, "cp_peak_value": peak}
+
+
+def baseline_step_response(pp: Dict[str, Any]) -> Dict[str, Any]:
     zeta = float(pp["zeta"])
     wn = float(pp["wn_rad_s"])
     K = float(pp["K"])
-
-    # Overshoot (standard formula)
-    if zeta >= 1.0:
-        os = 0.0
-    else:
-        os = math.exp(-zeta * math.pi / math.sqrt(1.0 - zeta**2)) * 100.0
-
-    # 2% settling time approximation (deterministic, canonical)
-    ts = 4.0 / (max(zeta * wn, 1e-12))
-
-    # Peak time and peak value (for checkpoints)
-    if zeta >= 1.0:
-        tp = float("nan")
-        ypk = K
-    else:
-        wd = wn * math.sqrt(1.0 - zeta**2)
-        tp = math.pi / max(wd, 1e-12)
-        ypk = K * (1.0 + os / 100.0)
-
-    return {
-        "percent_overshoot": float(os),
-        "settling_time_s": float(ts),
-        "steady_state": float(K),
-        "cp_peak_time_s": float(tp),
-        "cp_peak_value": float(ypk),
+    m = _step_metrics_numeric(zeta, wn, K)
+    gt: Dict[str, Any] = {
+        "steady_state": quantize_value("step_response", "steady_state", m["steady_state"]),
+        "percent_overshoot": quantize_value("step_response", "percent_overshoot", m["percent_overshoot"]),
+        "settling_time_s": quantize_value("step_response", "settling_time_s", m["settling_time_s"]),
+        # checkpoints:
+        "cp_peak_time_s": float(m["cp_peak_time_s"]),
+        "cp_peak_value": float(m["cp_peak_value"]),
         "cp_band_lower": float(0.98 * K),
         "cp_band_upper": float(1.02 * K),
     }
+    return gt
 
 
-def step_render(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
+def gen_step_response(rng: np.random.Generator, difficulty: str) -> Dict[str, Any]:
+    zetas = [0.2, 0.3, 0.4, 0.5, 0.6]
+    wns = [4.0, 6.0, 8.0, 10.0]  # rad/s
+    zeta = float(rng.choice(zetas))
+    wn = float(rng.choice(wns))
+    K = 1.0
+
+    # ensure plot shows at least up to settling time
+    ts = _step_metrics_numeric(zeta, wn, K)["settling_time_s"]
+    if difficulty == "clean":
+        t_end = 2.2 * ts
+        n_points = 800
+        noise = 0.0
+        grid = True
+        edge_tag = ""
+    elif difficulty == "moderate":
+        t_end = 1.6 * ts
+        n_points = 600
+        noise = 0.0
+        grid = True
+        edge_tag = "shorter_window"
+    else:
+        # edge: still includes settling, but fewer points and no grid
+        t_end = 1.25 * ts
+        n_points = 450
+        noise = float(rng.uniform(0.0, 0.01))
+        grid = False
+        edge_tag = "no_grid_sparse"
+    pp = {"zeta": zeta, "wn_rad_s": wn, "K": K, "t_end_s": float(t_end), "n_points": int(n_points), "noise": noise, "grid": grid}
+    return pp, edge_tag
+
+
+def render_step_response(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
+    import matplotlib.pyplot as plt
+
     zeta = float(pp["zeta"])
     wn = float(pp["wn_rad_s"])
     K = float(pp["K"])
-
-    # Analytic step response for underdamped case
     t_end = float(pp["t_end_s"])
-    n = int(pp["n_points"])
-    t = np.linspace(0.0, t_end, n)
+    n_points = int(pp["n_points"])
+    noise = float(pp["noise"])
+    grid = bool(pp["grid"])
 
-    if zeta >= 1.0:
-        # overdamped-ish placeholder (still deterministic)
-        y = K * (1.0 - np.exp(-wn * t))
-    else:
-        wd = wn * math.sqrt(1.0 - zeta**2)
-        phi = math.atan2(math.sqrt(1.0 - zeta**2), zeta)
-        y = K * (1.0 - (1.0 / math.sqrt(1.0 - zeta**2)) * np.exp(-zeta * wn * t) * np.sin(wd * t + phi))
+    t = np.linspace(0.0, t_end, n_points)
+    y = _step_response_curve(t, zeta, wn, K)
+    if noise > 0:
+        y = y + noise * np.random.default_rng(meta.seed + 7).normal(size=y.shape)
 
-    fig, ax = plt.subplots(figsize=FIGSIZE)
-    ax.plot(t, y)
-    ax.set_title("2nd-Order Step Response")
+    # audit: metrics from plotted curve should match baseline (within quantization)
+    gt = baseline_step_response(pp)
+    m = {
+        "steady_state": float(K),
+        "percent_overshoot": max(0.0, (float(np.max(y)) - K) / K * 100.0),
+        "settling_time_s": _step_metrics_numeric(zeta, wn, K)["settling_time_s"],  # numeric true
+    }
+    assert_close("step/settling_time_s", float(m["settling_time_s"]), float(gt["settling_time_s"]), abs_tol=0.05, rel_tol=0.05)
+
+    fig, ax = plt.subplots(figsize=(FIG_W, FIG_H))
+    ax.plot(t, y, linewidth=1.6)
+    ax.set_title("Step Response (2nd-order)")
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Output")
-    if meta.difficulty != "edge":
+    if grid:
         ax.grid(True, alpha=0.35)
-    else:
-        ax.grid(False)
 
-    save_fig(fig, out_path)
+    ax.set_xlim(0.0, t_end)
+    ax.set_ylim(min(-0.1, float(np.min(y)) - 0.05), float(np.max(y)) + 0.05)
+    ax.set_xticks(nice_ticks_linear(0.0, t_end, 6))
+    ax.set_yticks(nice_ticks_linear(float(np.min(y)), float(np.max(y)), 6))
+
+    save_figure(fig, out_path)
+    plt.close(fig)
+
     return {
         "x_min": 0.0, "x_max": t_end,
         "y_min": float(np.min(y)), "y_max": float(np.max(y)),
-        "tick_step_x": axis_ticks_linear(0.0, t_end, 6),
-        "tick_step_y": None,
+        "tick_step_x": nice_ticks_linear(0.0, t_end, 6),
+        "tick_step_y": nice_ticks_linear(float(np.min(y)), float(np.max(y)), 6),
     }
 
 
-def gen_step(out_dir: Path, images_root: Path, master_seed: int, n: int) -> List[Dict[str, Any]]:
-    items = []
-    plan = difficulty_plan(n)
+# ----------------------------
+# Family: Bode Magnitude (1st-order low-pass)
+# ----------------------------
 
-    zetas = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
-    wns = [4.0, 6.0, 8.0, 10.0, 12.0, 16.0]
-
-    fam = "step_response"
-    for i in range(n):
-        seed = stable_int_seed(master_seed, fam, i)
-        rng = np.random.default_rng(seed)
-        difficulty = plan[i]
-        edge_tag = ""
-
-        zeta = float(rng.choice(zetas))
-        wn = float(rng.choice(wns))
-        K = 1.0
-
-        ts = 4.0 / (zeta * wn)
-        if difficulty == "clean":
-            t_end = 6.0 * ts
-            n_points = 600
-        elif difficulty == "moderate":
-            t_end = 4.5 * ts
-            n_points = 450
-        else:
-            edge_tag = "short_window"
-            t_end = 3.0 * ts
-            n_points = 320
-
-        pp = {"zeta": zeta, "wn_rad_s": wn, "K": K, "t_end_s": float(t_end), "n_points": int(n_points)}
-        meta = ItemMeta(difficulty=difficulty, edge_tag=edge_tag, seed=seed)
-
-        img_name = f"{fam}_{i:03d}.png"
-        rel_img = Path("images") / fam / img_name
-        abs_img = images_root / fam / img_name
-
-        axis_meta = step_render(pp, abs_img, meta)
-        gt = step_baseline(pp)
-
-        q = (
-            "From the step response plot, estimate:\n"
-            "1) percent_overshoot (%)\n"
-            "2) settling_time_s (2% criterion, seconds)\n"
-            "3) steady_state (final value)\n"
-            "Return numeric JSON."
-        )
-
-        items.append({
-            "id": f"{fam}_{i:03d}",
-            "type": fam,
-            "image_path": str(rel_img).replace("\\", "/"),
-            "question": q,
-            "ground_truth": gt,
-            "plot_params": pp,
-            "generation": {"seed": seed, "difficulty": difficulty, "edge_tag": edge_tag,
-                           "final_fields": ["percent_overshoot", "settling_time_s", "steady_state"],
-                           "checkpoint_fields": ["cp_peak_time_s", "cp_peak_value", "cp_band_lower", "cp_band_upper"],
-                           **axis_meta},
-        })
-    return items
+LOG_TICKS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1_000, 2_000, 5_000, 10_000]
 
 
-# =========================
-# 2) Bode magnitude
-# =========================
-LOG_TICKS = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000]
+def _bode_mag_curve(f: np.ndarray, K: float, fc: float) -> np.ndarray:
+    mag = 20.0 * np.log10(K / np.sqrt(1.0 + (f / fc) ** 2))
+    return mag
 
 
-def bode_mag_baseline(pp: Dict[str, Any]) -> Dict[str, float]:
+def baseline_bode_magnitude(pp: Dict[str, Any]) -> Dict[str, Any]:
     K = float(pp["K"])
     fc = float(pp["fc_hz"])
+    # final fields quantized
     dc = 20.0 * math.log10(max(K, 1e-12))
-    return {
-        "dc_gain_db": float(dc),
-        "cutoff_hz": float(fc),
+    gt: Dict[str, Any] = {
+        "dc_gain_db": quantize_value("bode_magnitude", "dc_gain_db", dc),
+        "cutoff_hz": quantize_value("bode_magnitude", "cutoff_hz", fc),
+        # checkpoints
         "cp_mag_at_fc_db": float(dc - 3.0103),
         "cp_slope_db_per_decade": float(-20.0),
     }
+    return gt
 
 
-def bode_mag_render(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
+def gen_bode_magnitude(rng: np.random.Generator, difficulty: str) -> Tuple[Dict[str, Any], str]:
+    # Choose dc gain directly to avoid awkward decimals in final answers.
+    dc_choices = [-20, -10, 0, 10, 20]
+    dc = float(rng.choice(dc_choices))
+    K = 10 ** (dc / 20.0)
+
+    fc_choices = [10, 20, 50, 100, 200, 500, 1_000]
+    fc = float(rng.choice(fc_choices))
+
+    fmin, fmax = 1.0, 10_000.0
+    n_points = 500 if difficulty != "edge" else 350
+    grid = (difficulty != "edge")
+    edge_tag = "" if difficulty != "edge" else "no_grid_sparse"
+    pp = {"K": float(K), "fc_hz": float(fc), "fmin_hz": fmin, "fmax_hz": fmax, "n_points": int(n_points), "grid": grid}
+    return pp, edge_tag
+
+
+def render_bode_magnitude(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import ScalarFormatter
+
     K = float(pp["K"])
     fc = float(pp["fc_hz"])
     fmin = float(pp["fmin_hz"])
     fmax = float(pp["fmax_hz"])
     n_points = int(pp["n_points"])
+    grid = bool(pp["grid"])
 
     f = np.logspace(np.log10(fmin), np.log10(fmax), n_points)
-    mag = 20.0 * np.log10(K / np.sqrt(1.0 + (f / fc) ** 2))
+    mag = _bode_mag_curve(f, K, fc)
 
-    fig, ax = plt.subplots(figsize=FIGSIZE)
-    ax.semilogx(f, mag)
+    # audit: ensure the -3dB point occurs at fc (within small tolerance)
+    dc = 20.0 * math.log10(max(K, 1e-12))
+    mag_fc = float(_bode_mag_curve(np.array([fc]), K, fc)[0])
+    assert_close("bode_mag/mag_at_fc", mag_fc, dc - 3.0103, abs_tol=5e-4, rel_tol=1e-6)
+
+    fig, ax = plt.subplots(figsize=(FIG_W, FIG_H))
+    ax.semilogx(f, mag, linewidth=1.6)
     ax.set_title("Bode Magnitude (1st-order Low-pass)")
     ax.set_xlabel("Frequency (Hz)")
     ax.set_ylabel("Magnitude (dB)")
+    if grid:
+        ax.grid(True, which="both", alpha=0.30)
 
-    ax.set_xticks([x for x in LOG_TICKS if fmin <= x <= fmax])
-    ax.get_xaxis().set_major_formatter(matplotlib.ticker.ScalarFormatter())
+    ax.set_xlim(fmin, fmax)
+    ax.set_xticks([t for t in LOG_TICKS if fmin <= t <= fmax])
+    ax.get_xaxis().set_major_formatter(ScalarFormatter())
+    ax.set_yticks(nice_ticks_linear(float(np.min(mag)), float(np.max(mag)), 6))
 
-    if meta.difficulty != "edge":
-        ax.grid(True, which="both", alpha=0.3)
+    save_figure(fig, out_path)
+    plt.close(fig)
 
-    save_fig(fig, out_path)
-    return {"x_min": fmin, "x_max": fmax, "y_min": float(np.min(mag)), "y_max": float(np.max(mag)),
-            "tick_step_x": None, "tick_step_y": None}
-
-
-def gen_bode_mag(out_dir: Path, images_root: Path, master_seed: int, n: int) -> List[Dict[str, Any]]:
-    fam = "bode_magnitude"
-    items = []
-    plan = difficulty_plan(n)
-
-    Ks = [0.5, 1.0, 2.0, 5.0, 10.0]
-    fcs = [20, 50, 100, 200, 500, 1000, 2000, 5000]
-
-    for i in range(n):
-        seed = stable_int_seed(master_seed, fam, i)
-        rng = np.random.default_rng(seed)
-        difficulty = plan[i]
-        edge_tag = ""
-
-        K = float(rng.choice(Ks))
-        fc = float(rng.choice(fcs))
-
-        if difficulty == "clean":
-            fmin, fmax = fc / 10.0, fc * 10.0
-            n_points = 600
-        elif difficulty == "moderate":
-            fmin, fmax = fc / 7.0, fc * 12.0
-            n_points = 450
-        else:
-            edge_tag = "narrow_span"
-            fmin, fmax = fc / 4.0, fc * 4.0
-            n_points = 300
-
-        pp = {"K": K, "fc_hz": fc, "fmin_hz": float(fmin), "fmax_hz": float(fmax), "n_points": int(n_points)}
-        meta = ItemMeta(difficulty=difficulty, edge_tag=edge_tag, seed=seed)
-
-        img_name = f"{fam}_{i:03d}.png"
-        rel_img = Path("images") / fam / img_name
-        abs_img = images_root / fam / img_name
-
-        axis_meta = bode_mag_render(pp, abs_img, meta)
-        gt = bode_mag_baseline(pp)
-
-        q = (
-            "From the Bode magnitude plot, estimate:\n"
-            "1) dc_gain_db (dB)\n"
-            "2) cutoff_hz (Hz) (−3 dB point)\n"
-            "Return numeric JSON."
-        )
-
-        items.append({
-            "id": f"{fam}_{i:03d}",
-            "type": fam,
-            "image_path": str(rel_img).replace("\\", "/"),
-            "question": q,
-            "ground_truth": gt,
-            "plot_params": pp,
-            "generation": {"seed": seed, "difficulty": difficulty, "edge_tag": edge_tag,
-                           "final_fields": ["dc_gain_db", "cutoff_hz"],
-                           "checkpoint_fields": ["cp_mag_at_fc_db", "cp_slope_db_per_decade"],
-                           **axis_meta},
-        })
-    return items
-
-
-# =========================
-# 3) Bode phase
-# =========================
-def bode_phase_baseline(pp: Dict[str, Any]) -> Dict[str, float]:
-    fc = float(pp["fc_hz"])
-    phase_10 = -math.degrees(math.atan(10.0))
     return {
-        "cutoff_hz": float(fc),
-        "phase_deg_at_10fc": float(phase_10),
-        "cp_phase_deg_at_fc": float(-45.0),
+        "x_min": fmin, "x_max": fmax,
+        "y_min": float(np.min(mag)), "y_max": float(np.max(mag)),
+        "tick_step_x": None,
+        "tick_step_y": nice_ticks_linear(float(np.min(mag)), float(np.max(mag)), 6),
     }
 
 
-def bode_phase_render(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
+# ----------------------------
+# Family: Bode Phase (1st-order low-pass)
+# ----------------------------
+
+def _bode_phase_curve(f: np.ndarray, fc: float) -> np.ndarray:
+    phase = -np.degrees(np.arctan(f / fc))
+    return phase
+
+
+def baseline_bode_phase(pp: Dict[str, Any]) -> Dict[str, Any]:
+    fc = float(pp["fc_hz"])
+    phase_10fc = float(-math.degrees(math.atan(10.0)))
+    gt: Dict[str, Any] = {
+        "cutoff_hz": quantize_value("bode_phase", "cutoff_hz", fc),
+        "phase_deg_at_10fc": quantize_value("bode_phase", "phase_deg_at_10fc", phase_10fc),
+        # checkpoints
+        "cp_phase_deg_at_fc": float(-45.0),
+    }
+    return gt
+
+
+def gen_bode_phase(rng: np.random.Generator, difficulty: str) -> Tuple[Dict[str, Any], str]:
+    fc_choices = [10, 20, 50, 100, 200, 500, 1_000]
+    fc = float(rng.choice(fc_choices))
+    fmin, fmax = 1.0, 10_000.0
+    n_points = 450 if difficulty != "edge" else 320
+    grid = (difficulty != "edge")
+    edge_tag = "" if difficulty != "edge" else "no_grid_sparse"
+    pp = {"fc_hz": float(fc), "fmin_hz": fmin, "fmax_hz": fmax, "n_points": int(n_points), "grid": grid}
+    return pp, edge_tag
+
+
+def render_bode_phase(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import ScalarFormatter
+
     fc = float(pp["fc_hz"])
     fmin = float(pp["fmin_hz"])
     fmax = float(pp["fmax_hz"])
     n_points = int(pp["n_points"])
+    grid = bool(pp["grid"])
 
     f = np.logspace(np.log10(fmin), np.log10(fmax), n_points)
-    phase = -np.degrees(np.arctan(f / fc))
+    phase = _bode_phase_curve(f, fc)
 
-    fig, ax = plt.subplots(figsize=FIGSIZE)
-    ax.semilogx(f, phase)
+    # audit: phase at fc is -45
+    ph_fc = float(_bode_phase_curve(np.array([fc]), fc)[0])
+    assert_close("bode_phase/phase_at_fc", ph_fc, -45.0, abs_tol=1e-3, rel_tol=1e-6)
+
+    fig, ax = plt.subplots(figsize=(FIG_W, FIG_H))
+    ax.semilogx(f, phase, linewidth=1.6)
     ax.set_title("Bode Phase (1st-order Low-pass)")
     ax.set_xlabel("Frequency (Hz)")
     ax.set_ylabel("Phase (deg)")
+    if grid:
+        ax.grid(True, which="both", alpha=0.30)
 
-    ax.set_xticks([x for x in LOG_TICKS if fmin <= x <= fmax])
-    ax.get_xaxis().set_major_formatter(matplotlib.ticker.ScalarFormatter())
+    ax.set_xlim(fmin, fmax)
+    ax.set_ylim(-95, 5)
+    ax.set_xticks([t for t in LOG_TICKS if fmin <= t <= fmax])
+    ax.get_xaxis().set_major_formatter(ScalarFormatter())
+    ax.set_yticks([-90, -75, -60, -45, -30, -15, 0])
 
-    if meta.difficulty != "edge":
-        ax.grid(True, which="both", alpha=0.3)
+    save_figure(fig, out_path)
+    plt.close(fig)
 
-    save_fig(fig, out_path)
-    return {"x_min": fmin, "x_max": fmax, "y_min": float(np.min(phase)), "y_max": float(np.max(phase)),
-            "tick_step_x": None, "tick_step_y": None}
-
-
-def gen_bode_phase(out_dir: Path, images_root: Path, master_seed: int, n: int) -> List[Dict[str, Any]]:
-    fam = "bode_phase"
-    items = []
-    plan = difficulty_plan(n)
-    fcs = [20, 50, 100, 200, 500, 1000, 2000, 5000]
-
-    for i in range(n):
-        seed = stable_int_seed(master_seed, fam, i)
-        rng = np.random.default_rng(seed)
-        difficulty = plan[i]
-        edge_tag = ""
-
-        fc = float(rng.choice(fcs))
-        if difficulty == "clean":
-            fmin, fmax = fc / 10.0, fc * 10.0
-            n_points = 600
-        elif difficulty == "moderate":
-            fmin, fmax = fc / 7.0, fc * 12.0
-            n_points = 450
-        else:
-            edge_tag = "narrow_span"
-            fmin, fmax = fc / 4.0, fc * 4.0
-            n_points = 300
-
-        pp = {"fc_hz": fc, "fmin_hz": float(fmin), "fmax_hz": float(fmax), "n_points": int(n_points)}
-        meta = ItemMeta(difficulty=difficulty, edge_tag=edge_tag, seed=seed)
-
-        img_name = f"{fam}_{i:03d}.png"
-        rel_img = Path("images") / fam / img_name
-        abs_img = images_root / fam / img_name
-
-        axis_meta = bode_phase_render(pp, abs_img, meta)
-        gt = bode_phase_baseline(pp)
-
-        q = (
-            "From the Bode phase plot, estimate:\n"
-            "1) cutoff_hz (Hz)\n"
-            "2) phase_deg_at_10fc (deg)\n"
-            "Return numeric JSON."
-        )
-
-        items.append({
-            "id": f"{fam}_{i:03d}",
-            "type": fam,
-            "image_path": str(rel_img).replace("\\", "/"),
-            "question": q,
-            "ground_truth": gt,
-            "plot_params": pp,
-            "generation": {"seed": seed, "difficulty": difficulty, "edge_tag": edge_tag,
-                           "final_fields": ["cutoff_hz", "phase_deg_at_10fc"],
-                           "checkpoint_fields": ["cp_phase_deg_at_fc"],
-                           **axis_meta},
-        })
-    return items
-
-
-# =========================
-# 4) Bandpass response (log-symmetric parabola)
-# =========================
-def bandpass_baseline(pp: Dict[str, Any]) -> Dict[str, float]:
-    f1 = float(pp["f1_3db_hz"])
-    f2 = float(pp["f2_3db_hz"])
-    f0 = math.sqrt(f1 * f2)
-    bw = f2 - f1
-    q = f0 / max(bw, 1e-12)
     return {
-        "resonance_hz": float(f0),
-        "bandwidth_hz": float(bw),
+        "x_min": fmin, "x_max": fmax,
+        "y_min": float(np.min(phase)), "y_max": float(np.max(phase)),
+        "tick_step_x": None,
+        "tick_step_y": [-90, -75, -60, -45, -30, -15, 0],
+    }
+
+
+# ----------------------------
+# Family: Bandpass Response (synthetic magnitude with -3 dB points)
+# ----------------------------
+
+def _bandpass_mag_curve(f: np.ndarray, f1: float, f2: float) -> np.ndarray:
+    # Parabolic in log-frequency, peak at f0 with 0 dB, and -3 dB at f1 and f2
+    logf = np.log10(f)
+    logf1, logf2 = math.log10(f1), math.log10(f2)
+    logf0 = 0.5 * (logf1 + logf2)
+    # Choose curvature so mag(logf1)=mag(logf2)=-3
+    a = 3.0 / ((logf1 - logf0) ** 2)
+    mag_db = -a * (logf - logf0) ** 2
+    return mag_db
+
+
+def _bandpass_pairs() -> List[Tuple[int, int]]:
+    # pick pairs from LOG_TICKS such that resonance = sqrt(f1*f2) is integer and within ticks
+    ticks = [t for t in LOG_TICKS if t >= 5 and t <= 5_000]
+    pairs = []
+    for i, f1 in enumerate(ticks):
+        for f2 in ticks[i + 1:]:
+            prod = f1 * f2
+            r = int(round(math.sqrt(prod)))
+            if r * r == prod:
+                # ensure bandwidth not too extreme
+                if 0.15 <= (f2 / f1) <= 20.0:
+                    pairs.append((int(f1), int(f2)))
+    # prefer mid-bandwidth pairs
+    return pairs
+
+
+BANDPASS_PAIRS = _bandpass_pairs()
+
+
+def baseline_bandpass(pp: Dict[str, Any]) -> Dict[str, Any]:
+    f1, f2 = float(pp["f1_hz"]), float(pp["f2_hz"])
+    res = math.sqrt(f1 * f2)
+    bw = f2 - f1
+    q = res / max(bw, 1e-12)
+    gt: Dict[str, Any] = {
+        "resonance_hz": quantize_value("bandpass_response", "resonance_hz", res),
+        "bandwidth_hz": quantize_value("bandpass_response", "bandwidth_hz", bw),
+        # checkpoints
         "cp_f1_3db_hz": float(f1),
         "cp_f2_3db_hz": float(f2),
         "cp_q_factor": float(q),
     }
+    return gt
 
 
-def bandpass_render(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
-    f1 = float(pp["f1_3db_hz"])
-    f2 = float(pp["f2_3db_hz"])
-    f0 = math.sqrt(f1 * f2)
+def gen_bandpass(rng: np.random.Generator, difficulty: str) -> Tuple[Dict[str, Any], str]:
+    if not BANDPASS_PAIRS:
+        raise RuntimeError("No valid bandpass pairs found.")
+    f1, f2 = BANDPASS_PAIRS[int(rng.integers(0, len(BANDPASS_PAIRS)))]
+    # difficulty affects resolution/grid only
+    n_points = 500 if difficulty == "clean" else (420 if difficulty == "moderate" else 320)
+    grid = (difficulty != "edge")
+    edge_tag = "" if difficulty != "edge" else "no_grid_sparse"
+    pp = {"f1_hz": float(f1), "f2_hz": float(f2), "fmin_hz": 1.0, "fmax_hz": 10_000.0, "n_points": int(n_points), "grid": grid}
+    return pp, edge_tag
 
+
+def render_bandpass(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import ScalarFormatter
+
+    f1 = float(pp["f1_hz"])
+    f2 = float(pp["f2_hz"])
     fmin = float(pp["fmin_hz"])
     fmax = float(pp["fmax_hz"])
     n_points = int(pp["n_points"])
+    grid = bool(pp["grid"])
 
     f = np.logspace(np.log10(fmin), np.log10(fmax), n_points)
-    logf = np.log10(f)
-    logf0 = math.log10(f0)
-    logf1 = math.log10(f1)
+    mag = _bandpass_mag_curve(f, f1, f2)
 
-    # log-parabola: mag_db(f1)= -3, mag_db(f0)=0, symmetric -> mag_db(f2)=-3
-    a = 3.0 / max((logf1 - logf0) ** 2, 1e-12)
-    mag_db = -a * (logf - logf0) ** 2
+    # audit: ensure -3 dB at f1,f2 and 0 dB at resonance
+    m1 = float(_bandpass_mag_curve(np.array([f1]), f1, f2)[0])
+    m2 = float(_bandpass_mag_curve(np.array([f2]), f1, f2)[0])
+    assert_close("bandpass/mag_at_f1", m1, -3.0, abs_tol=1e-6, rel_tol=1e-6)
+    assert_close("bandpass/mag_at_f2", m2, -3.0, abs_tol=1e-6, rel_tol=1e-6)
 
-    fig, ax = plt.subplots(figsize=FIGSIZE)
-    ax.semilogx(f, mag_db)
-    ax.set_title("Bandpass Magnitude Response (synthetic)")
+    fig, ax = plt.subplots(figsize=(FIG_W, FIG_H))
+    ax.semilogx(f, mag, linewidth=1.6)
+    ax.set_title("Bandpass Magnitude Response")
     ax.set_xlabel("Frequency (Hz)")
     ax.set_ylabel("Magnitude (dB)")
+    if grid:
+        ax.grid(True, which="both", alpha=0.30)
 
-    ax.set_xticks([x for x in LOG_TICKS if fmin <= x <= fmax])
-    ax.get_xaxis().set_major_formatter(matplotlib.ticker.ScalarFormatter())
+    ax.set_xlim(fmin, fmax)
+    ax.set_ylim(-20, 1)
+    ax.set_xticks([t for t in LOG_TICKS if fmin <= t <= fmax])
+    ax.get_xaxis().set_major_formatter(ScalarFormatter())
+    ax.set_yticks([-18, -15, -12, -9, -6, -3, 0])
 
-    if meta.difficulty != "edge":
-        ax.grid(True, which="both", alpha=0.3)
+    save_figure(fig, out_path)
+    plt.close(fig)
 
-    save_fig(fig, out_path)
-    return {"x_min": fmin, "x_max": fmax, "y_min": float(np.min(mag_db)), "y_max": float(np.max(mag_db)),
-            "tick_step_x": None, "tick_step_y": None}
-
-
-def gen_bandpass(out_dir: Path, images_root: Path, master_seed: int, n: int) -> List[Dict[str, Any]]:
-    fam = "bandpass_response"
-    items = []
-    plan = difficulty_plan(n)
-
-    tick = [20, 30, 50, 80, 100, 150, 200, 300, 500, 800, 1000, 1500, 2000, 3000, 5000]
-    for i in range(n):
-        seed = stable_int_seed(master_seed, fam, i)
-        rng = np.random.default_rng(seed)
-        difficulty = plan[i]
-        edge_tag = ""
-
-        f1 = float(rng.choice(tick))
-        # pick f2 > f1 with reasonable ratio
-        candidates = [x for x in tick if x > f1 and (x / f1) <= 8.0]
-        if not candidates:
-            candidates = [x for x in tick if x > f1]
-        f2 = float(rng.choice(candidates))
-
-        if difficulty == "clean":
-            fmin, fmax = f1 / 2.0, f2 * 2.0
-            n_points = 700
-        elif difficulty == "moderate":
-            fmin, fmax = f1 / 1.7, f2 * 1.7
-            n_points = 520
-        else:
-            edge_tag = "tight_span"
-            fmin, fmax = f1 / 1.3, f2 * 1.3
-            n_points = 380
-
-        pp = {"f1_3db_hz": f1, "f2_3db_hz": f2, "fmin_hz": float(fmin), "fmax_hz": float(fmax), "n_points": int(n_points)}
-        meta = ItemMeta(difficulty=difficulty, edge_tag=edge_tag, seed=seed)
-
-        img_name = f"{fam}_{i:03d}.png"
-        rel_img = Path("images") / fam / img_name
-        abs_img = images_root / fam / img_name
-
-        axis_meta = bandpass_render(pp, abs_img, meta)
-        gt = bandpass_baseline(pp)
-
-        q = (
-            "From the bandpass magnitude plot, estimate:\n"
-            "1) resonance_hz (Hz)\n"
-            "2) bandwidth_hz (Hz)\n"
-            "Return numeric JSON."
-        )
-
-        items.append({
-            "id": f"{fam}_{i:03d}",
-            "type": fam,
-            "image_path": str(rel_img).replace("\\", "/"),
-            "question": q,
-            "ground_truth": gt,
-            "plot_params": pp,
-            "generation": {"seed": seed, "difficulty": difficulty, "edge_tag": edge_tag,
-                           "final_fields": ["resonance_hz", "bandwidth_hz"],
-                           "checkpoint_fields": ["cp_f1_3db_hz", "cp_f2_3db_hz", "cp_q_factor"],
-                           **axis_meta},
-        })
-    return items
-
-
-# =========================
-# 5) Time waveform
-# =========================
-def time_wave_baseline(pp: Dict[str, Any]) -> Dict[str, float]:
-    wave = str(pp["wave_type"])
-    f0 = float(pp["f0_hz"])
-    A = float(pp["A"])
-    gt = {
-        "frequency_hz": float(f0),
-        "vpp_v": float(2.0 * A),
-        "cp_period_s": float(1.0 / max(f0, 1e-12)),
-        "cp_vmax_v": float(A),
-        "cp_vmin_v": float(-A),
+    return {
+        "x_min": fmin, "x_max": fmax,
+        "y_min": float(np.min(mag)), "y_max": float(np.max(mag)),
+        "tick_step_x": None,
+        "tick_step_y": [-18, -15, -12, -9, -6, -3, 0],
     }
-    if wave == "square":
-        gt["cp_duty"] = float(pp["duty"])
-    return gt
 
+
+# ----------------------------
+# Family: Time Waveform (sine/square/triangle)
+# ----------------------------
 
 def _wave(t: np.ndarray, wave_type: str, f0: float, A: float, duty: float) -> np.ndarray:
     phase = (t * f0) % 1.0
@@ -617,683 +592,692 @@ def _wave(t: np.ndarray, wave_type: str, f0: float, A: float, duty: float) -> np
     raise ValueError(wave_type)
 
 
-def time_wave_render(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
+def baseline_time_wave(pp: Dict[str, Any]) -> Dict[str, Any]:
     f0 = float(pp["f0_hz"])
     A = float(pp["A"])
-    wave = str(pp["wave_type"])
+    wave_type = str(pp["wave_type"])
+    duty = float(pp.get("duty", 0.5))
+
+    gt: Dict[str, Any] = {
+        "frequency_hz": quantize_value("time_waveform", "frequency_hz", f0),
+        "vpp_v": quantize_value("time_waveform", "vpp_v", 2.0 * A),
+        "cp_period_s": float(1.0 / max(f0, 1e-12)),
+        "cp_vmax_v": float(A),
+        "cp_vmin_v": float(-A),
+    }
+    if wave_type == "square":
+        gt["cp_duty"] = float(duty)
+    return gt
+
+
+def gen_time_wave(rng: np.random.Generator, difficulty: str) -> Tuple[Dict[str, Any], str]:
+    wave_type = str(rng.choice(["sine", "square", "triangle"]))
+    # Choose frequencies that divide fs exactly to avoid sampling artifacts.
+    fs = 6000.0
+    f_choices = [5, 10, 12, 15, 20, 24, 25, 30, 40, 50, 60, 75, 80, 100, 120]
+    f0 = float(rng.choice(f_choices))
+    A_choices = [0.5, 1.0, 2.0, 3.0, 5.0]
+    A = float(rng.choice(A_choices))
+    duty = 0.5
+    if wave_type == "square":
+        duty = float(rng.choice([0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]))
+
+    if difficulty == "clean":
+        cycles = int(rng.choice([5, 6]))
+        grid = True
+        edge_tag = ""
+    elif difficulty == "moderate":
+        cycles = int(rng.choice([3, 4]))
+        grid = True
+        edge_tag = "fewer_cycles"
+    else:
+        cycles = int(rng.choice([1, 2]))
+        grid = False
+        edge_tag = "no_grid_low_cycles"
+
+    t_end = float(cycles / max(f0, 1e-12))
+    n_samples = int(round(t_end * fs))
+    pp: Dict[str, Any] = {"wave_type": wave_type, "f0_hz": f0, "A": A, "fs_hz": fs, "t_end_s": t_end, "n_samples": n_samples}
+    if wave_type == "square":
+        pp["duty"] = duty
+    pp["grid"] = grid
+    return pp, edge_tag
+
+
+def render_time_wave(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
+    import matplotlib.pyplot as plt
+
+    f0 = float(pp["f0_hz"])
+    A = float(pp["A"])
+    wave_type = str(pp["wave_type"])
     duty = float(pp.get("duty", 0.5))
     t_end = float(pp["t_end_s"])
     fs = float(pp["fs_hz"])
+    n_samples = int(pp["n_samples"])
+    grid = bool(pp.get("grid", True))
 
-    t = np.arange(0.0, t_end, 1.0 / fs)
-    y = _wave(t, wave, f0, A, duty)
+    t = np.arange(n_samples) / fs
+    y = _wave(t, wave_type, f0, A, duty)
 
-    fig, ax = plt.subplots(figsize=FIGSIZE)
-    ax.plot(t, y)
-    ax.set_title(f"Time Waveform ({wave})")
+    # audit: ensure period is exactly representable in samples for chosen f0, fs
+    spp = fs / f0
+    assert_close("time_wave/samples_per_period_int", spp, round(spp), abs_tol=1e-9, rel_tol=0.0)
+
+    fig, ax = plt.subplots(figsize=(FIG_W, FIG_H))
+    ax.plot(t, y, linewidth=1.6)
+    ax.set_title(f"Time Waveform ({wave_type})")
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Voltage (V)")
-    if meta.difficulty != "edge":
+    if grid:
         ax.grid(True, alpha=0.35)
 
-    save_fig(fig, out_path)
-    return {"x_min": 0.0, "x_max": t_end, "y_min": float(np.min(y)), "y_max": float(np.max(y)),
-            "tick_step_x": axis_ticks_linear(0.0, t_end, 6),
-            "tick_step_y": axis_ticks_linear(float(np.min(y)), float(np.max(y)), 6)}
+    ax.set_xlim(0.0, t_end)
+    ax.set_ylim(float(np.min(y)) - 0.1 * abs(A), float(np.max(y)) + 0.1 * abs(A))
+    ax.set_xticks(nice_ticks_linear(0.0, t_end, 6))
+    ax.set_yticks(nice_ticks_linear(float(np.min(y)), float(np.max(y)), 6))
 
+    save_figure(fig, out_path)
+    plt.close(fig)
 
-def gen_time_wave(out_dir: Path, images_root: Path, master_seed: int, n: int) -> List[Dict[str, Any]]:
-    fam = "time_waveform"
-    items = []
-    plan = difficulty_plan(n)
-
-    f0s = [2, 5, 10, 20, 40, 60, 80, 100, 120]
-    As = [0.5, 1.0, 2.0, 3.0, 5.0]
-
-    for i in range(n):
-        seed = stable_int_seed(master_seed, fam, i)
-        rng = np.random.default_rng(seed)
-        difficulty = plan[i]
-        edge_tag = ""
-
-        wave = str(rng.choice(["sine", "square", "triangle"]))
-        f0 = float(rng.choice(f0s))
-        A = float(rng.choice(As))
-        duty = 0.5
-
-        if difficulty == "clean":
-            cycles = float(rng.uniform(2.5, 6.0))
-            fs = 4000.0
-        elif difficulty == "moderate":
-            cycles = float(rng.uniform(1.5, 3.5))
-            fs = 3500.0
-        else:
-            edge_tag = "short_window"
-            cycles = float(rng.uniform(0.6, 1.1))
-            fs = 3000.0
-
-        if wave == "square":
-            duty = float(rng.uniform(0.2, 0.8))
-
-        t_end = float(cycles / max(f0, 1e-12))
-
-        pp = {"wave_type": wave, "f0_hz": f0, "A": A, "fs_hz": fs, "t_end_s": t_end}
-        if wave == "square":
-            pp["duty"] = duty
-
-        meta = ItemMeta(difficulty=difficulty, edge_tag=edge_tag, seed=seed)
-
-        img_name = f"{fam}_{i:03d}.png"
-        rel_img = Path("images") / fam / img_name
-        abs_img = images_root / fam / img_name
-
-        axis_meta = time_wave_render(pp, abs_img, meta)
-        gt = time_wave_baseline(pp)
-
-        # IMPORTANT: checkpoint fields per-item (cp_duty only for square)
-        cp_fields = ["cp_period_s", "cp_vmax_v", "cp_vmin_v"]
-        if wave == "square":
-            cp_fields.append("cp_duty")
-
-        q = (
-            "From the time-domain waveform plot, estimate:\n"
-            "1) frequency_hz (Hz)\n"
-            "2) vpp_v (V)\n"
-            "Return numeric JSON."
-        )
-
-        items.append({
-            "id": f"{fam}_{i:03d}",
-            "type": fam,
-            "image_path": str(rel_img).replace("\\", "/"),
-            "question": q,
-            "ground_truth": gt,
-            "plot_params": pp,
-            "generation": {"seed": seed, "difficulty": difficulty, "edge_tag": edge_tag,
-                           "final_fields": ["frequency_hz", "vpp_v"],
-                           "checkpoint_fields": cp_fields,
-                           **axis_meta},
-        })
-    return items
-
-
-# =========================
-# 6) FFT spectrum (bin-aligned)
-# =========================
-def fft_baseline(pp: Dict[str, Any]) -> Dict[str, float]:
-    f1 = float(pp["f1_hz"])
-    f2 = float(pp["f2_hz"])
-    A1 = float(pp["A1"])
-    A2 = float(pp["A2"])
-    # dominant is higher amplitude
-    if A1 >= A2:
-        dom, sec = f1, f2
-        ratio = A1 / max(A2, 1e-12)
-    else:
-        dom, sec = f2, f1
-        ratio = A2 / max(A1, 1e-12)
     return {
-        "dominant_frequency_hz": float(dom),
-        "secondary_frequency_hz": float(sec),
-        "cp_peak_ratio": float(ratio),
+        "x_min": 0.0, "x_max": t_end,
+        "y_min": float(np.min(y)), "y_max": float(np.max(y)),
+        "tick_step_x": nice_ticks_linear(0.0, t_end, 6),
+        "tick_step_y": nice_ticks_linear(float(np.min(y)), float(np.max(y)), 6),
     }
 
 
-def fft_render(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
+# ----------------------------
+# Family: FFT Spectrum (two-tone magnitude)
+# ----------------------------
+
+def _fft_spectrum(signal: np.ndarray, fs: float) -> Tuple[np.ndarray, np.ndarray]:
+    N = len(signal)
+    Y = np.fft.rfft(signal * np.hanning(N))
+    mag = np.abs(Y)
+    freqs = np.fft.rfftfreq(N, d=1.0 / fs)
+    return freqs, mag
+
+
+def baseline_fft(pp: Dict[str, Any]) -> Dict[str, Any]:
+    f1 = float(pp["f1_hz"])
+    f2 = float(pp["f2_hz"])
+    a1 = float(pp["a1"])
+    a2 = float(pp["a2"])
+    # peak ratio checkpoint is amplitude ratio (not power), still meaningful
+    gt: Dict[str, Any] = {
+        "dominant_frequency_hz": quantize_value("fft_spectrum", "dominant_frequency_hz", max(f1, f2) if a1 == a2 else (f1 if a1 > a2 else f2)),
+        "secondary_frequency_hz": quantize_value("fft_spectrum", "secondary_frequency_hz", min(f1, f2) if a1 == a2 else (f2 if a1 > a2 else f1)),
+        "cp_peak_ratio": float(max(a1, a2) / max(min(a1, a2), 1e-12)),
+    }
+    return gt
+
+
+def gen_fft(rng: np.random.Generator, difficulty: str) -> Tuple[Dict[str, Any], str]:
+    # Use fs=N=2048 -> 1 Hz bin spacing; avoid awkward fractions.
+    fs = 2048.0
+    N = 2048
+    # choose well-separated tones, away from DC and Nyquist
+    f_choices = [20, 40, 50, 60, 80, 100, 120, 150, 180, 200, 240, 300, 360, 400, 480, 600]
+    f1, f2 = rng.choice(f_choices, size=2, replace=False)
+    f1, f2 = float(min(f1, f2)), float(max(f1, f2))
+
+    if difficulty == "clean":
+        a1, a2 = 1.0, 0.6
+        noise = 0.0
+        grid = True
+        edge_tag = ""
+    elif difficulty == "moderate":
+        a1, a2 = 1.0, float(rng.choice([0.5, 0.6, 0.7]))
+        noise = 0.01
+        grid = True
+        edge_tag = "light_noise"
+    else:
+        a1, a2 = 1.0, float(rng.choice([0.35, 0.45, 0.55]))
+        noise = 0.03
+        grid = False
+        edge_tag = "no_grid_noisy"
+
+    pp = {"fs_hz": fs, "N": N, "f1_hz": f1, "f2_hz": f2, "a1": float(a1), "a2": float(a2), "noise": float(noise), "grid": grid}
+    return pp, edge_tag
+
+
+def render_fft(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
+    import matplotlib.pyplot as plt
+
     fs = float(pp["fs_hz"])
     N = int(pp["N"])
     f1 = float(pp["f1_hz"])
     f2 = float(pp["f2_hz"])
-    A1 = float(pp["A1"])
-    A2 = float(pp["A2"])
+    a1 = float(pp["a1"])
+    a2 = float(pp["a2"])
+    noise = float(pp["noise"])
+    grid = bool(pp["grid"])
 
-    n = np.arange(N)
-    t = n / fs
-    x = A1 * np.sin(2 * np.pi * f1 * t) + A2 * np.sin(2 * np.pi * f2 * t)
+    t = np.arange(N) / fs
+    sig = a1 * np.sin(2 * np.pi * f1 * t) + a2 * np.sin(2 * np.pi * f2 * t)
+    if noise > 0:
+        sig = sig + noise * np.random.default_rng(meta.seed + 11).normal(size=sig.shape)
 
-    X = np.fft.rfft(x)
-    freqs = np.fft.rfftfreq(N, d=1.0 / fs)
-    mag = np.abs(X)
+    freqs, mag = _fft_spectrum(sig, fs)
 
-    fig, ax = plt.subplots(figsize=FIGSIZE)
-    ax.plot(freqs, mag)
+    # audit: ensure peaks align exactly to integer bins
+    # find two largest peaks excluding DC
+    idx0 = 1
+    peak_idxs = np.argsort(mag[idx0:])[::-1][:6] + idx0
+    peak_freqs = sorted({int(round(freqs[i])) for i in peak_idxs})
+    assert int(round(f1)) in peak_freqs and int(round(f2)) in peak_freqs
+
+    fig, ax = plt.subplots(figsize=(FIG_W, FIG_H))
+    ax.plot(freqs, mag, linewidth=1.3)
     ax.set_title("FFT Magnitude Spectrum")
     ax.set_xlabel("Frequency (Hz)")
-    ax.set_ylabel("|X(f)|")
-    if meta.difficulty != "edge":
-        ax.grid(True, alpha=0.3)
+    ax.set_ylabel("Magnitude (a.u.)")
+    if grid:
+        ax.grid(True, alpha=0.30)
 
-    save_fig(fig, out_path)
-    return {"x_min": float(freqs[0]), "x_max": float(freqs[-1]), "y_min": float(np.min(mag)), "y_max": float(np.max(mag)),
-            "tick_step_x": None, "tick_step_y": None}
+    ax.set_xlim(0, 700)
+    ax.set_xticks([0, 100, 200, 300, 400, 500, 600, 700])
+    ax.set_yticks(nice_ticks_linear(float(np.min(mag)), float(np.max(mag)), 6))
 
+    save_figure(fig, out_path)
+    plt.close(fig)
 
-def gen_fft(out_dir: Path, images_root: Path, master_seed: int, n: int) -> List[Dict[str, Any]]:
-    fam = "fft_spectrum"
-    items = []
-    plan = difficulty_plan(n)
-
-    fs = 2000.0
-    N = 2048
-
-    # choose integer bins so f aligns exactly -> no leakage
-    bins = list(range(10, 250, 10))  # 10,20,...,240
-    amps = [(1.0, 0.6), (1.0, 0.4), (0.8, 0.5)]
-
-    for i in range(n):
-        seed = stable_int_seed(master_seed, fam, i)
-        rng = np.random.default_rng(seed)
-        difficulty = plan[i]
-        edge_tag = ""
-
-        k1 = int(rng.choice(bins))
-        k2 = int(rng.choice([k for k in bins if abs(k - k1) >= 20]))
-        f1 = k1 * fs / N
-        f2 = k2 * fs / N
-        A1, A2 = rng.choice(amps)
-
-        if difficulty == "edge":
-            edge_tag = "close_peaks"
-            # force closer peaks
-            k2 = k1 + int(rng.choice([10, 20]))
-            f2 = k2 * fs / N
-
-        pp = {"fs_hz": fs, "N": N, "f1_hz": float(f1), "f2_hz": float(f2), "A1": float(A1), "A2": float(A2)}
-        meta = ItemMeta(difficulty=difficulty, edge_tag=edge_tag, seed=seed)
-
-        img_name = f"{fam}_{i:03d}.png"
-        rel_img = Path("images") / fam / img_name
-        abs_img = images_root / fam / img_name
-
-        axis_meta = fft_render(pp, abs_img, meta)
-        gt = fft_baseline(pp)
-
-        q = (
-            "From the FFT magnitude plot, estimate:\n"
-            "1) dominant_frequency_hz (Hz)\n"
-            "2) secondary_frequency_hz (Hz)\n"
-            "Return numeric JSON."
-        )
-
-        items.append({
-            "id": f"{fam}_{i:03d}",
-            "type": fam,
-            "image_path": str(rel_img).replace("\\", "/"),
-            "question": q,
-            "ground_truth": gt,
-            "plot_params": pp,
-            "generation": {"seed": seed, "difficulty": difficulty, "edge_tag": edge_tag,
-                           "final_fields": ["dominant_frequency_hz", "secondary_frequency_hz"],
-                           "checkpoint_fields": ["cp_peak_ratio"],
-                           **axis_meta},
-        })
-    return items
-
-
-# =========================
-# 7) Spectrogram (two-tone switch)
-# =========================
-def spec_baseline(pp: Dict[str, Any]) -> Dict[str, float]:
     return {
-        "f1_hz": float(pp["f1_hz"]),
-        "f2_hz": float(pp["f2_hz"]),
-        "switch_time_s": float(pp["switch_time_s"]),
-        "cp_duration_s": float(pp["duration_s"]),
+        "x_min": 0.0, "x_max": 700.0,
+        "y_min": float(np.min(mag)), "y_max": float(np.max(mag)),
+        "tick_step_x": [0, 100, 200, 300, 400, 500, 600, 700],
+        "tick_step_y": nice_ticks_linear(float(np.min(mag)), float(np.max(mag)), 6),
     }
 
 
-def spec_render(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
-    fs = float(pp["fs_hz"])
-    duration = float(pp["duration_s"])
-    t0 = float(pp["switch_time_s"])
+# ----------------------------
+# Family: Spectrogram (two-frequency switch)
+# ----------------------------
+
+def baseline_spectrogram(pp: Dict[str, Any]) -> Dict[str, Any]:
     f1 = float(pp["f1_hz"])
     f2 = float(pp["f2_hz"])
+    gt: Dict[str, Any] = {
+        "f1_hz": quantize_value("spectrogram", "f1_hz", f1),
+        "f2_hz": quantize_value("spectrogram", "f2_hz", f2),
+        "cp_duration_s": quantize_value("spectrogram", "cp_duration_s", float(pp["duration_s"])),
+        "switch_time_s": quantize_value("spectrogram", "switch_time_s", float(pp["switch_time_s"])),
+    }
+    return gt
 
-    t = np.arange(0.0, duration, 1.0 / fs)
-    x = np.where(t < t0, np.sin(2 * np.pi * f1 * t), np.sin(2 * np.pi * f2 * t))
 
-    fig, ax = plt.subplots(figsize=FIGSIZE)
-    ax.specgram(x, NFFT=256, Fs=fs, noverlap=128)
-    ax.set_title("Spectrogram (two-tone switch)")
+def gen_spectrogram(rng: np.random.Generator, difficulty: str) -> Tuple[Dict[str, Any], str]:
+    fs = 2048.0
+    duration = 1.0
+    # NFFT=256 -> 8 Hz bins; choose freqs as multiples of 8
+    f_choices = [64, 80, 96, 112, 128, 160, 192, 256, 320, 384, 512, 640]
+    f1, f2 = rng.choice(f_choices, size=2, replace=False)
+    f1, f2 = float(f1), float(f2)
+
+    if difficulty == "clean":
+        switch_time = float(rng.choice([0.35, 0.45, 0.55]))
+        noise = 0.0
+        grid = True
+        edge_tag = ""
+    elif difficulty == "moderate":
+        switch_time = float(rng.choice([0.30, 0.50, 0.70]))
+        noise = 0.01
+        grid = True
+        edge_tag = "light_noise"
+    else:
+        switch_time = float(rng.choice([0.80, 0.85, 0.90]))
+        noise = 0.03
+        grid = False
+        edge_tag = "late_switch_noisy"
+
+    pp = {"fs_hz": fs, "duration_s": duration, "switch_time_s": switch_time, "f1_hz": f1, "f2_hz": f2, "noise": noise, "grid": grid}
+    return pp, edge_tag
+
+
+def render_spectrogram(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
+    import matplotlib.pyplot as plt
+
+    fs = float(pp["fs_hz"])
+    duration = float(pp["duration_s"])
+    switch_time = float(pp["switch_time_s"])
+    f1 = float(pp["f1_hz"])
+    f2 = float(pp["f2_hz"])
+    noise = float(pp["noise"])
+    grid = bool(pp["grid"])
+
+    t = np.arange(int(duration * fs)) / fs
+    sig = np.where(t < switch_time,
+                   np.sin(2 * np.pi * f1 * t),
+                   np.sin(2 * np.pi * f2 * t))
+    if noise > 0:
+        sig = sig + noise * np.random.default_rng(meta.seed + 19).normal(size=sig.shape)
+
+    fig, ax = plt.subplots(figsize=(FIG_W, FIG_H))
+    Pxx, freqs, bins, im = ax.specgram(sig, NFFT=256, Fs=fs, noverlap=128)
+    ax.set_title("Spectrogram (frequency switch)")
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Frequency (Hz)")
-    if meta.difficulty != "edge":
-        ax.grid(False)
+    ax.set_ylim(0, 700)
+    ax.set_yticks([0, 100, 200, 300, 400, 500, 600, 700])
+    if grid:
+        ax.grid(False)  # grid over image is distracting
 
-    save_fig(fig, out_path)
-    return {"x_min": 0.0, "x_max": duration, "y_min": 0.0, "y_max": fs / 2.0,
-            "tick_step_x": axis_ticks_linear(0.0, duration, 6),
-            "tick_step_y": None}
+    # audit: dominant freq before/after switch matches f1/f2 on coarse bins
+    # Use simple FFT of segments
+    i_switch = int(round(switch_time * fs))
+    seg1 = sig[:max(i_switch, 1)]
+    seg2 = sig[min(i_switch, len(sig)-1):]
+    def _dom_freq(seg):
+        if len(seg) < 32:
+            return None
+        fre, mag = _fft_spectrum(seg, fs)
+        k = int(np.argmax(mag[1:]) + 1)
+        return int(round(fre[k]))
+    d1 = _dom_freq(seg1)
+    d2 = _dom_freq(seg2)
+    if d1 is not None:
+        assert abs(d1 - int(round(f1))) <= 8
+    if d2 is not None:
+        assert abs(d2 - int(round(f2))) <= 8
 
+    save_figure(fig, out_path)
+    plt.close(fig)
 
-def gen_spectrogram(out_dir: Path, images_root: Path, master_seed: int, n: int) -> List[Dict[str, Any]]:
-    fam = "spectrogram"
-    items = []
-    plan = difficulty_plan(n)
-
-    fs = 2000.0
-    duration = 1.0
-    freqs = [50, 80, 100, 150, 200, 300, 400, 500, 600]
-
-    for i in range(n):
-        seed = stable_int_seed(master_seed, fam, i)
-        rng = np.random.default_rng(seed)
-        difficulty = plan[i]
-        edge_tag = ""
-
-        f1 = float(rng.choice(freqs))
-        f2 = float(rng.choice([x for x in freqs if x != f1]))
-        if difficulty == "edge":
-            edge_tag = "late_switch"
-            t0 = float(rng.uniform(0.75, 0.9))
-        else:
-            t0 = float(rng.uniform(0.25, 0.6))
-
-        pp = {"fs_hz": fs, "duration_s": duration, "switch_time_s": t0, "f1_hz": f1, "f2_hz": f2}
-        meta = ItemMeta(difficulty=difficulty, edge_tag=edge_tag, seed=seed)
-
-        img_name = f"{fam}_{i:03d}.png"
-        rel_img = Path("images") / fam / img_name
-        abs_img = images_root / fam / img_name
-
-        axis_meta = spec_render(pp, abs_img, meta)
-        gt = spec_baseline(pp)
-
-        q = (
-            "From the spectrogram, estimate:\n"
-            "1) f1_hz (Hz) (first tone)\n"
-            "2) f2_hz (Hz) (second tone)\n"
-            "Return numeric JSON."
-        )
-
-        items.append({
-            "id": f"{fam}_{i:03d}",
-            "type": fam,
-            "image_path": str(rel_img).replace("\\", "/"),
-            "question": q,
-            "ground_truth": gt,
-            "plot_params": pp,
-            "generation": {"seed": seed, "difficulty": difficulty, "edge_tag": edge_tag,
-                           "final_fields": ["f1_hz", "f2_hz"],
-                           "checkpoint_fields": ["switch_time_s", "cp_duration_s"],
-                           **axis_meta},
-        })
-    return items
+    return {
+        "x_min": 0.0, "x_max": duration,
+        "y_min": 0.0, "y_max": 700.0,
+        "tick_step_x": nice_ticks_linear(0.0, duration, 6),
+        "tick_step_y": [0, 100, 200, 300, 400, 500, 600, 700],
+    }
 
 
-# =========================
-# 8) I–V curve
-# =========================
-def iv_baseline(pp: Dict[str, Any]) -> Dict[str, float]:
+# ----------------------------
+# Family: I–V Curve (resistor or diode+series resistance)
+# ----------------------------
+
+def baseline_iv(pp: Dict[str, Any]) -> Dict[str, Any]:
     kind = str(pp["kind"])
     if kind == "resistor":
         R = float(pp["R_ohm"])
-        return {"resistance_ohm": float(R), "cp_slope_ohm": float(R)}
+        gt: Dict[str, Any] = {
+            "resistance_ohm": quantize_value("iv_curve", "resistance_ohm", R),
+            "cp_slope_ohm": float(R),
+        }
+        return gt
+
     # diode
     Is = float(pp["Is"])
     nVt = float(pp["nVt"])
     Rs = float(pp["Rs"])
     It = float(pp["target_current_a"])
-    Vt = nVt * math.log(It / Is + 1.0) + It * Rs
-    return {
-        "target_current_a": float(It),
-        "turn_on_voltage_v_at_target_i": float(Vt),
+    V = nVt * math.log(It / max(Is, 1e-30) + 1.0) + It * Rs
+    gt = {
+        "turn_on_voltage_v_at_target_i": quantize_value("iv_curve", "turn_on_voltage_v_at_target_i", V),
         "cp_Is": float(Is),
         "cp_nVt": float(nVt),
         "cp_Rs": float(Rs),
+        "target_current_a": float(It),
     }
+    return gt
 
 
-def iv_render(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
+def gen_iv(rng: np.random.Generator, difficulty: str) -> Tuple[Dict[str, Any], str]:
+    if rng.random() < 0.5:
+        # resistor
+        R = float(rng.choice([10, 22, 47, 100, 220, 470, 1_000]))
+        grid = (difficulty != "edge")
+        edge_tag = "" if difficulty != "edge" else "no_grid"
+        pp = {"kind": "resistor", "R_ohm": R, "grid": grid}
+        return pp, edge_tag
+
+    # diode tuned to yield ~0.6–0.8 V at 10–20 mA (human-friendly)
+    Is = float(rng.choice([1e-8, 2e-8, 5e-8]))
+    nVt = float(rng.choice([0.05]))  # keep simple
+    Rs = float(rng.choice([0.0, 1.0, 2.0]))
+    It = float(rng.choice([0.01, 0.02]))  # 10 mA / 20 mA
+
+    grid = (difficulty != "edge")
+    edge_tag = "" if difficulty != "edge" else "no_grid"
+    pp = {"kind": "diode", "Is": Is, "nVt": nVt, "Rs": Rs, "target_current_a": It, "grid": grid}
+    return pp, edge_tag
+
+
+def render_iv(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
+    import matplotlib.pyplot as plt
+
     kind = str(pp["kind"])
-    fig, ax = plt.subplots(figsize=FIGSIZE)
+    grid = bool(pp.get("grid", True))
 
+    fig, ax = plt.subplots(figsize=(FIG_W, FIG_H))
     if kind == "resistor":
         R = float(pp["R_ohm"])
-        v = np.linspace(-5.0, 5.0, 600)
-        i = v / R
-        ax.plot(v, i)
+        V = np.linspace(-5, 5, 200)
+        I = V / R
+        ax.plot(V, I, linewidth=1.6)
         ax.set_title("I–V Curve (Resistor)")
         ax.set_xlabel("Voltage (V)")
         ax.set_ylabel("Current (A)")
-        if meta.difficulty != "edge":
-            ax.grid(True, alpha=0.35)
-        save_fig(fig, out_path)
-        return {"x_min": -5.0, "x_max": 5.0, "y_min": float(np.min(i)), "y_max": float(np.max(i)),
-                "tick_step_x": None, "tick_step_y": None}
+        ax.set_xlim(-5, 5)
+        ax.set_xticks([-5, -2.5, 0, 2.5, 5])
+        ax.set_yticks(nice_ticks_linear(float(np.min(I)), float(np.max(I)), 6))
+        if grid:
+            ax.grid(True, alpha=0.30)
+        save_figure(fig, out_path)
+        plt.close(fig)
+        return {"x_min": -5.0, "x_max": 5.0, "y_min": float(np.min(I)), "y_max": float(np.max(I)), "tick_step_x": [-5, -2.5, 0, 2.5, 5], "tick_step_y": None}
 
-    # diode: parametric curve V(I)
+    # diode
     Is = float(pp["Is"])
     nVt = float(pp["nVt"])
     Rs = float(pp["Rs"])
+    It = float(pp["target_current_a"])
 
-    I = np.linspace(0.0, 0.05, 700)
-    V = nVt * np.log(I / Is + 1.0) + I * Rs
+    I = np.linspace(0, 0.03, 220)  # up to 30 mA
+    V = nVt * np.log(I / max(Is, 1e-30) + 1.0) + I * Rs
 
-    ax.plot(V, I)
-    ax.set_title("I–V Curve (Diode)")
+    # audit: voltage at target current matches baseline (quantized)
+    gt = baseline_iv(pp)
+    Vt = float(nVt * math.log(It / max(Is, 1e-30) + 1.0) + It * Rs)
+    assert_close("iv/turn_on_voltage", float(gt["turn_on_voltage_v_at_target_i"]), float(round(Vt, ANSWER_FORMAT["iv_curve"]["turn_on_voltage_v_at_target_i"])), abs_tol=1e-6, rel_tol=0.0)
+
+    ax.plot(V, I, linewidth=1.6)
+    ax.set_title("I–V Curve (Diode + Rs)")
     ax.set_xlabel("Voltage (V)")
     ax.set_ylabel("Current (A)")
-    if meta.difficulty != "edge":
-        ax.grid(True, alpha=0.35)
+    ax.set_xlim(0, float(np.max(V)) * 1.05)
+    ax.set_ylim(0, 0.03)
+    ax.set_yticks([0.0, 0.01, 0.02, 0.03])
+    ax.set_xticks(nice_ticks_linear(0.0, float(np.max(V)) * 1.05, 6))
+    if grid:
+        ax.grid(True, alpha=0.30)
 
-    save_fig(fig, out_path)
-    return {"x_min": float(np.min(V)), "x_max": float(np.max(V)), "y_min": 0.0, "y_max": float(np.max(I)),
-            "tick_step_x": None, "tick_step_y": None}
-
-
-def gen_iv(out_dir: Path, images_root: Path, master_seed: int, n: int) -> List[Dict[str, Any]]:
-    fam = "iv_curve"
-    items = []
-    plan = difficulty_plan(n)
-
-    Rs = [10.0, 22.0, 47.0, 100.0, 220.0, 470.0, 1000.0]
-    for i in range(n):
-        seed = stable_int_seed(master_seed, fam, i)
-        rng = np.random.default_rng(seed)
-        difficulty = plan[i]
-        edge_tag = ""
-
-        kind = "resistor" if (i % 2 == 0) else "diode"
-        if difficulty == "edge":
-            edge_tag = "tight_scale"
-
-        if kind == "resistor":
-            R = float(rng.choice(Rs))
-            pp = {"kind": "resistor", "R_ohm": R}
-            final_fields = ["resistance_ohm"]
-            cp_fields = ["cp_slope_ohm"]
-        else:
-            pp = {
-                "kind": "diode",
-                "Is": 1e-12,
-                "nVt": float(rng.choice([0.035, 0.050, 0.060])),
-                "Rs": float(rng.choice([1.0, 2.0, 5.0])),
-                "target_current_a": float(rng.choice([0.005, 0.01, 0.02])),
-            }
-            final_fields = ["turn_on_voltage_v_at_target_i"]
-            cp_fields = ["target_current_a", "cp_Is", "cp_nVt", "cp_Rs"]
-
-        meta = ItemMeta(difficulty=difficulty, edge_tag=edge_tag, seed=seed)
-        img_name = f"{fam}_{i:03d}.png"
-        rel_img = Path("images") / fam / img_name
-        abs_img = images_root / fam / img_name
-
-        axis_meta = iv_render(pp, abs_img, meta)
-        gt = iv_baseline(pp)
-
-        q = (
-            "From the I–V curve, estimate the requested value(s) for this plot type.\n"
-            "Return numeric JSON."
-        )
-
-        items.append({
-            "id": f"{fam}_{i:03d}",
-            "type": fam,
-            "image_path": str(rel_img).replace("\\", "/"),
-            "question": q,
-            "ground_truth": gt,
-            "plot_params": pp,
-            "generation": {"seed": seed, "difficulty": difficulty, "edge_tag": edge_tag,
-                           "final_fields": final_fields,
-                           "checkpoint_fields": cp_fields,
-                           **axis_meta},
-        })
-    return items
+    save_figure(fig, out_path)
+    plt.close(fig)
+    return {"x_min": 0.0, "x_max": float(np.max(V)) * 1.05, "y_min": 0.0, "y_max": 0.03, "tick_step_x": None, "tick_step_y": [0.0, 0.01, 0.02, 0.03]}
 
 
-# =========================
-# 9) Transfer characteristic
-# =========================
-def transfer_baseline(pp: Dict[str, Any]) -> Dict[str, float]:
-    g = float(pp["gain"])
-    vs = float(pp["Vsat"])
-    vin_sat = vs / max(g, 1e-12)
-    return {"small_signal_gain": float(g), "saturation_v": float(vs), "cp_vin_at_saturation": float(vin_sat)}
+# ----------------------------
+# Family: Transfer Characteristic (saturating amplifier)
+# ----------------------------
+
+def baseline_transfer(pp: Dict[str, Any]) -> Dict[str, Any]:
+    gain = float(pp["gain"])
+    vsat = float(pp["vsat_v"])
+    vin_sat = vsat / max(gain, 1e-12)
+    gt: Dict[str, Any] = {
+        "small_signal_gain": quantize_value("transfer_characteristic", "small_signal_gain", gain),
+        "saturation_v": quantize_value("transfer_characteristic", "saturation_v", vsat),
+        # checkpoints
+        "cp_vin_at_saturation": float(vin_sat),
+    }
+    return gt
 
 
-def transfer_render(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
-    g = float(pp["gain"])
-    vs = float(pp["Vsat"])
-    vin = np.linspace(-2.0 * (vs / g), 2.0 * (vs / g), 600)
-    vout = np.clip(g * vin, -vs, vs)
+def gen_transfer(rng: np.random.Generator, difficulty: str) -> Tuple[Dict[str, Any], str]:
+    gain = float(rng.choice([1.0, 1.5, 2.0, 3.0]))
+    vsat = float(rng.choice([1.0, 2.0, 3.0, 5.0]))
+    grid = (difficulty != "edge")
+    edge_tag = "" if difficulty != "edge" else "no_grid"
+    pp = {"gain": gain, "vsat_v": vsat, "grid": grid}
+    return pp, edge_tag
 
-    fig, ax = plt.subplots(figsize=FIGSIZE)
-    ax.plot(vin, vout)
-    ax.set_title("Transfer Characteristic (gain + saturation)")
+
+def render_transfer(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
+    import matplotlib.pyplot as plt
+
+    gain = float(pp["gain"])
+    vsat = float(pp["vsat_v"])
+    grid = bool(pp.get("grid", True))
+
+    vin = np.linspace(-10, 10, 400)
+    vout = np.clip(gain * vin, -vsat, vsat)
+
+    fig, ax = plt.subplots(figsize=(FIG_W, FIG_H))
+    ax.plot(vin, vout, linewidth=1.6)
+    ax.set_title("Transfer Characteristic (saturation)")
     ax.set_xlabel("Vin (V)")
     ax.set_ylabel("Vout (V)")
-    if meta.difficulty != "edge":
-        ax.grid(True, alpha=0.35)
+    ax.set_xlim(-10, 10)
+    ax.set_ylim(-vsat * 1.1, vsat * 1.1)
+    ax.set_xticks([-10, -5, 0, 5, 10])
+    ax.set_yticks(nice_ticks_linear(-vsat * 1.1, vsat * 1.1, 6))
+    if grid:
+        ax.grid(True, alpha=0.30)
 
-    save_fig(fig, out_path)
-    return {"x_min": float(np.min(vin)), "x_max": float(np.max(vin)), "y_min": float(np.min(vout)), "y_max": float(np.max(vout)),
-            "tick_step_x": None, "tick_step_y": None}
-
-
-def gen_transfer(out_dir: Path, images_root: Path, master_seed: int, n: int) -> List[Dict[str, Any]]:
-    fam = "transfer_characteristic"
-    items = []
-    plan = difficulty_plan(n)
-
-    gains = [0.5, 1.0, 2.0, 5.0]
-    vsats = [1.0, 2.0, 3.0, 5.0]
-
-    for i in range(n):
-        seed = stable_int_seed(master_seed, fam, i)
-        rng = np.random.default_rng(seed)
-        difficulty = plan[i]
-        edge_tag = ""
-
-        g = float(rng.choice(gains))
-        vs = float(rng.choice(vsats))
-        if difficulty == "edge":
-            edge_tag = "small_linear_region"
-            g = float(rng.choice([5.0]))
-            vs = float(rng.choice([1.0, 2.0]))
-
-        pp = {"gain": g, "Vsat": vs}
-        meta = ItemMeta(difficulty=difficulty, edge_tag=edge_tag, seed=seed)
-
-        img_name = f"{fam}_{i:03d}.png"
-        rel_img = Path("images") / fam / img_name
-        abs_img = images_root / fam / img_name
-
-        axis_meta = transfer_render(pp, abs_img, meta)
-        gt = transfer_baseline(pp)
-
-        q = (
-            "From the transfer characteristic, estimate:\n"
-            "1) small_signal_gain\n"
-            "2) saturation_v\n"
-            "Return numeric JSON."
-        )
-
-        items.append({
-            "id": f"{fam}_{i:03d}",
-            "type": fam,
-            "image_path": str(rel_img).replace("\\", "/"),
-            "question": q,
-            "ground_truth": gt,
-            "plot_params": pp,
-            "generation": {"seed": seed, "difficulty": difficulty, "edge_tag": edge_tag,
-                           "final_fields": ["small_signal_gain", "saturation_v"],
-                           "checkpoint_fields": ["cp_vin_at_saturation"],
-                           **axis_meta},
-        })
-    return items
+    save_figure(fig, out_path)
+    plt.close(fig)
+    return {"x_min": -10.0, "x_max": 10.0, "y_min": float(np.min(vout)), "y_max": float(np.max(vout)), "tick_step_x": [-10, -5, 0, 5, 10], "tick_step_y": None}
 
 
-# =========================
-# 10) Pole-zero plot (2nd-order poles)
-# =========================
-def pz_baseline(pp: Dict[str, Any]) -> Dict[str, float]:
-    zeta = float(pp["zeta"])
+# ----------------------------
+# Family: Pole-Zero Plot (2nd-order poles)
+# ----------------------------
+
+def baseline_pole_zero(pp: Dict[str, Any]) -> Dict[str, Any]:
     wn = float(pp["wn_rad_s"])
-    real = -zeta * wn
-    imag = wn * math.sqrt(max(1.0 - zeta**2, 0.0))
-    return {"zeta": float(zeta), "wn_rad_s": float(wn), "cp_pole_real": float(real), "cp_pole_imag": float(imag)}
-
-
-def pz_render(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
     zeta = float(pp["zeta"])
+    pole_real = -zeta * wn
+    pole_imag = wn * math.sqrt(max(1.0 - zeta * zeta, 0.0))
+    gt: Dict[str, Any] = {
+        "wn_rad_s": quantize_value("pole_zero", "wn_rad_s", wn),
+        "zeta": quantize_value("pole_zero", "zeta", zeta),
+        # checkpoints (pole coordinates)
+        "cp_pole_real": float(pole_real),
+        "cp_pole_imag": float(pole_imag),
+    }
+    return gt
+
+
+def gen_pole_zero(rng: np.random.Generator, difficulty: str) -> Tuple[Dict[str, Any], str]:
+    # wn in rad/s (keep integers; easy to read on axis)
+    wn = float(rng.choice([4, 6, 8, 10, 12, 15]))
+    zeta = float(rng.choice([0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]))
+    grid = (difficulty != "edge")
+    edge_tag = "" if difficulty != "edge" else "no_grid"
+    pp = {"wn_rad_s": wn, "zeta": zeta, "grid": grid}
+    return pp, edge_tag
+
+
+def render_pole_zero(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
+    import matplotlib.pyplot as plt
+
     wn = float(pp["wn_rad_s"])
+    zeta = float(pp["zeta"])
+    grid = bool(pp.get("grid", True))
 
-    real = -zeta * wn
-    imag = wn * math.sqrt(max(1.0 - zeta**2, 0.0))
+    pole_real = -zeta * wn
+    pole_imag = wn * math.sqrt(max(1.0 - zeta * zeta, 0.0))
 
-    fig, ax = plt.subplots(figsize=FIGSIZE)
-    ax.scatter([real, real], [imag, -imag], marker="x", s=80)
-    ax.axhline(0.0, color="black", linewidth=1.0, alpha=0.4)
-    ax.axvline(0.0, color="black", linewidth=1.0, alpha=0.4)
+    # audit: consistent with baseline
+    gt = baseline_pole_zero(pp)
+    assert_close("pole_zero/pole_real", pole_real, float(gt["cp_pole_real"]), abs_tol=1e-9, rel_tol=0.0)
+    assert_close("pole_zero/pole_imag", pole_imag, float(gt["cp_pole_imag"]), abs_tol=1e-9, rel_tol=0.0)
+
+    fig, ax = plt.subplots(figsize=(FIG_W, FIG_H))
+    ax.scatter([pole_real, pole_real], [pole_imag, -pole_imag], s=40, marker="x")
+    ax.axvline(0, color="k", linewidth=1.0, alpha=0.6)
+    ax.axhline(0, color="k", linewidth=1.0, alpha=0.6)
     ax.set_title("Pole-Zero Plot (2nd-order poles)")
-    ax.set_xlabel("Real (rad/s)")
-    ax.set_ylabel("Imag (rad/s)")
-    ax.set_aspect("equal", adjustable="box")
-    if meta.difficulty != "edge":
-        ax.grid(True, alpha=0.35)
+    ax.set_xlabel("Real axis (rad/s)")
+    ax.set_ylabel("Imag axis (rad/s)")
 
-    # set symmetric limits for readability
-    lim = max(abs(real), abs(imag)) * 1.6 + 0.5
-    ax.set_xlim(-lim, lim)
+    lim = max(wn * 1.3, 10.0)
+    ax.set_xlim(-lim, lim * 0.2)
     ax.set_ylim(-lim, lim)
+    ax.set_xticks(nice_ticks_linear(-lim, lim * 0.2, 6))
+    ax.set_yticks(nice_ticks_linear(-lim, lim, 6))
+    if grid:
+        ax.grid(True, alpha=0.30)
 
-    save_fig(fig, out_path)
-    return {"x_min": -lim, "x_max": lim, "y_min": -lim, "y_max": lim, "tick_step_x": None, "tick_step_y": None}
+    save_figure(fig, out_path)
+    plt.close(fig)
 
-
-def gen_pole_zero(out_dir: Path, images_root: Path, master_seed: int, n: int) -> List[Dict[str, Any]]:
-    fam = "pole_zero"
-    items = []
-    plan = difficulty_plan(n)
-
-    zetas = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
-    wns = [4.0, 6.0, 8.0, 10.0, 12.0, 16.0]
-
-    for i in range(n):
-        seed = stable_int_seed(master_seed, fam, i)
-        rng = np.random.default_rng(seed)
-        difficulty = plan[i]
-        edge_tag = ""
-
-        zeta = float(rng.choice(zetas))
-        wn = float(rng.choice(wns))
-        if difficulty == "edge":
-            edge_tag = "near_critical"
-            zeta = float(rng.choice([0.7, 0.8, 0.9]))
-            wn = float(rng.choice([6.0, 8.0, 10.0]))
-
-        pp = {"zeta": zeta, "wn_rad_s": wn}
-        meta = ItemMeta(difficulty=difficulty, edge_tag=edge_tag, seed=seed)
-
-        img_name = f"{fam}_{i:03d}.png"
-        rel_img = Path("images") / fam / img_name
-        abs_img = images_root / fam / img_name
-
-        axis_meta = pz_render(pp, abs_img, meta)
-        gt = pz_baseline(pp)
-
-        q = (
-            "From the pole plot, estimate:\n"
-            "1) zeta (damping ratio)\n"
-            "2) wn_rad_s (natural frequency, rad/s)\n"
-            "Return numeric JSON."
-        )
-
-        items.append({
-            "id": f"{fam}_{i:03d}",
-            "type": fam,
-            "image_path": str(rel_img).replace("\\", "/"),
-            "question": q,
-            "ground_truth": gt,
-            "plot_params": pp,
-            "generation": {"seed": seed, "difficulty": difficulty, "edge_tag": edge_tag,
-                           "final_fields": ["zeta", "wn_rad_s"],
-                           "checkpoint_fields": ["cp_pole_real", "cp_pole_imag"],
-                           **axis_meta},
-        })
-    return items
+    return {"x_min": -lim, "x_max": lim * 0.2, "y_min": -lim, "y_max": lim, "tick_step_x": None, "tick_step_y": None}
 
 
-# =========================
-# Orchestrator + validator
-# =========================
-GEN_MAP = {
-    "step_response": gen_step,
-    "bode_magnitude": gen_bode_mag,
-    "bode_phase": gen_bode_phase,
-    "bandpass_response": gen_bandpass,
-    "time_waveform": gen_time_wave,
-    "fft_spectrum": gen_fft,
-    "spectrogram": gen_spectrogram,
-    "iv_curve": gen_iv,
-    "transfer_characteristic": gen_transfer,
-    "pole_zero": gen_pole_zero,
-}
+# ----------------------------
+# Orchestrator
+# ----------------------------
 
-BASELINE_MAP = {
-    "step_response": step_baseline,
-    "bode_magnitude": bode_mag_baseline,
-    "bode_phase": bode_phase_baseline,
-    "bandpass_response": bandpass_baseline,
-    "time_waveform": time_wave_baseline,
-    "fft_spectrum": fft_baseline,
-    "spectrogram": spec_baseline,
-    "iv_curve": iv_baseline,
-    "transfer_characteristic": transfer_baseline,
-    "pole_zero": pz_baseline,
-}
-
-
-def validate(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    rows = []
-    for it in items:
-        typ = it["type"]
-        pp = it["plot_params"]
-        gt = it["ground_truth"]
-        pred = BASELINE_MAP[typ](pp)
-        for k in gt.keys():
-            pv = float(pred[k])
-            gv = float(gt[k])
-            ok = float_close(pv, gv, abs_tol=1e-12, rel_tol=1e-12)
-            rows.append({"type": typ, "id": it["id"], "field": k, "pass": ok, "abs_err": abs(pv - gv)})
-    return rows
+FAMILIES = [
+    ("step_response", gen_step_response, baseline_step_response, render_step_response,
+     ["steady_state", "percent_overshoot", "settling_time_s"],
+     ["cp_peak_time_s", "cp_peak_value", "cp_band_lower", "cp_band_upper"]),
+    ("bode_magnitude", gen_bode_magnitude, baseline_bode_magnitude, render_bode_magnitude,
+     ["dc_gain_db", "cutoff_hz"],
+     ["cp_mag_at_fc_db", "cp_slope_db_per_decade"]),
+    ("bode_phase", gen_bode_phase, baseline_bode_phase, render_bode_phase,
+     ["cutoff_hz", "phase_deg_at_10fc"],
+     ["cp_phase_deg_at_fc"]),
+    ("bandpass_response", gen_bandpass, baseline_bandpass, render_bandpass,
+     ["resonance_hz", "bandwidth_hz"],
+     ["cp_f1_3db_hz", "cp_f2_3db_hz", "cp_q_factor"]),
+    ("time_waveform", gen_time_wave, baseline_time_wave, render_time_wave,
+     ["frequency_hz", "vpp_v"],
+     ["cp_period_s", "cp_vmax_v", "cp_vmin_v", "cp_duty"]),
+    ("fft_spectrum", gen_fft, baseline_fft, render_fft,
+     ["dominant_frequency_hz", "secondary_frequency_hz"],
+     ["cp_peak_ratio"]),
+    ("spectrogram", gen_spectrogram, baseline_spectrogram, render_spectrogram,
+     ["f1_hz", "f2_hz"],
+     ["cp_duration_s", "switch_time_s"]),
+    ("iv_curve", gen_iv, baseline_iv, render_iv,
+     ["resistance_ohm", "turn_on_voltage_v_at_target_i"],
+     ["cp_slope_ohm", "cp_Is", "cp_nVt", "cp_Rs", "target_current_a"]),
+    ("transfer_characteristic", gen_transfer, baseline_transfer, render_transfer,
+     ["small_signal_gain", "saturation_v"],
+     ["cp_vin_at_saturation"]),
+    ("pole_zero", gen_pole_zero, baseline_pole_zero, render_pole_zero,
+     ["zeta", "wn_rad_s"],
+     ["cp_pole_real", "cp_pole_imag"]),
+]
 
 
-def main():
+def _question_for_family(family: str, final_fields: List[str], checkpoint_fields: List[str]) -> str:
+    # Describe rounding expectations for final fields.
+    fmt_parts = []
+    for f in final_fields:
+        dec = ANSWER_FORMAT.get(family, {}).get(f, None)
+        if dec is None:
+            continue
+        if dec == 0:
+            fmt_parts.append(f"- {f}: integer")
+        else:
+            fmt_parts.append(f"- {f}: round to {dec} decimal places")
+    fmt_txt = "\n".join(fmt_parts) if fmt_parts else "- Use reasonable numeric precision."
+
+    schema = {k: "<number or null>" for k in (final_fields + checkpoint_fields) if k.startswith("cp_") or k in final_fields}
+    schema_txt = json.dumps(schema, indent=2)
+
+    q = (
+        "You are given an engineering plot image. Read the plot and answer the question.\n\n"
+        f"Return ONLY a single JSON object matching this schema (numbers or null; no strings; no units; no extra keys):\n{schema_txt}\n\n"
+        "Notes:\n"
+        "- Use cp_* fields as intermediate plot reads (checkpoints).\n"
+        "- If you cannot determine a value, output null for that key.\n"
+        "Rounding for final fields:\n"
+        f"{fmt_txt}\n"
+    )
+    return q
+
+
+def generate_dataset(out_dir: Path, n_per_family: int, master_seed: int) -> Path:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    images_root = out_dir / IMAGES_DIRNAME
+    _ensure_images_root(images_root)
+
+    items: List[Dict[str, Any]] = []
+    for family, gen_fn, baseline_fn, render_fn, final_fields, checkpoint_fields in FAMILIES:
+        diff_plan = make_difficulty_plan(n_per_family, seed=DIFFICULTY_PLAN_SEED)
+        fam_dir = images_root / family
+        fam_dir.mkdir(parents=True, exist_ok=True)
+
+        for i in range(n_per_family):
+            seed = stable_int_seed(master_seed, family, i)
+            rng = np.random.default_rng(seed)
+            difficulty = diff_plan[i]
+            pp, edge_tag = gen_fn(rng, difficulty)
+            meta = ItemMeta(difficulty=difficulty, edge_tag=edge_tag, seed=seed)
+
+            img_name = f"{family}_{i:03d}.png"
+            abs_img = fam_dir / img_name
+            axis_meta = render_fn(pp, abs_img, meta)
+
+            gt = baseline_fn(pp)
+
+            # Keep only keys that exist (some families have mutually exclusive finals like iv_curve).
+            gt_kept = {k: gt[k] for k in gt.keys()}
+
+            q = _question_for_family(family, final_fields, checkpoint_fields)
+
+            items.append({
+                "id": f"{family}_{i:03d}",
+                "type": family,
+                "image_path": _rel_image_path(images_root, abs_img),
+                "question": q,
+                "ground_truth": gt_kept,
+                "plot_params": pp,
+                "generation": {
+                    "version": VERSION,
+                    "difficulty_plan_seed": DIFFICULTY_PLAN_SEED,
+                    "seed": seed,
+                    "difficulty": difficulty,
+                    "edge_tag": edge_tag,
+                    "final_fields": final_fields,
+                    "checkpoint_fields": checkpoint_fields,
+                    "answer_format": ANSWER_FORMAT.get(family, {}),
+                    **axis_meta,
+                },
+            })
+
+    jsonl_path = out_dir / OUT_JSONL_NAME
+    with jsonl_path.open("w", encoding="utf-8") as f:
+        for it in items:
+            f.write(json.dumps(it) + "\n")
+    return jsonl_path
+
+
+def validate_dataset(jsonl_path: Path) -> None:
+    # Lightweight structural checks + audit the "human-friendly" formatting of final fields.
+    n = 0
+    with jsonl_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            it = json.loads(line)
+            n += 1
+            fam = it["type"]
+            gt = it["ground_truth"]
+            fmt = ANSWER_FORMAT.get(fam, {})
+            for field, dec in fmt.items():
+                if field in gt and gt[field] is not None:
+                    v = gt[field]
+                    if dec == 0:
+                        if not isinstance(v, int):
+                            # allow float that is integral (e.g., 100.0) but enforce convertibility
+                            if abs(float(v) - round(float(v))) > 1e-9:
+                                raise ValueError(f"[validate] {it['id']} field {field} expected int, got {v}")
+                    else:
+                        # ensure no ugly tails like 0.9765625 unless allowed by dec
+                        if abs(float(v) - round(float(v), dec)) > 1e-9:
+                            raise ValueError(f"[validate] {it['id']} field {field} not quantized to {dec} decimals: {v}")
+    print(f"[validate] OK items={n}")
+
+
+def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out_dir", type=str, default="data/plotchain_v4", help="Output dataset directory")
-    ap.add_argument("--seed", type=int, default=0, help="Master seed")
-    ap.add_argument("--n_per_family", type=int, default=20, help="Items per family (recommended 20 or 30)")
+    ap.add_argument("--n_per_family", type=int, default=30)
+    ap.add_argument("--seed", type=int, default=DEFAULT_MASTER_SEED)
+    ap.add_argument("--validate_only", action="store_true")
     args = ap.parse_args()
 
-    set_mpl_style()
-
     out_dir = Path(args.out_dir)
-    images_root = out_dir / "images"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    jsonl_path = out_dir / OUT_JSONL_NAME
 
-    all_items: List[Dict[str, Any]] = []
-    for fam in FAMILIES:
-        gen = GEN_MAP[fam]
-        items = gen(out_dir=out_dir, images_root=images_root, master_seed=args.seed, n=args.n_per_family)
-        print(f"[gen] {fam}: n={len(items)}")
-        all_items.extend(items)
-
-    jsonl_path = out_dir / "plotchain_v4.jsonl"
-    write_jsonl(jsonl_path, all_items)
-    print(f"[write] {jsonl_path} ({len(all_items)} items)")
-
-    rows = validate(all_items)
-    pass_rate = sum(1 for r in rows if r["pass"]) / max(len(rows), 1)
-    print(f"[validate] pass_rate={pass_rate*100:.1f}% rows={len(rows)}")
-
-    report_csv = out_dir / "baseline_report_v4.csv"
-    with report_csv.open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=["type", "id", "field", "pass", "abs_err"])
-        w.writeheader()
-        w.writerows(rows)
-    print(f"[write] {report_csv}")
+    if not args.validate_only:
+        path = generate_dataset(out_dir=out_dir, n_per_family=args.n_per_family, master_seed=args.seed)
+        print(f"[write] {path} ({args.n_per_family} per family; {len(FAMILIES)*args.n_per_family} items)")
+    validate_dataset(jsonl_path)
 
 
 if __name__ == "__main__":
