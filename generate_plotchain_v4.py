@@ -1415,8 +1415,8 @@ def generate_family(typ: str, out_dir: Path, images_root: Path, master_seed: int
             )
 
         elif typ == "torque_speed":
-            w0 = float(rng.choice([1000.0, 1500.0, 2000.0, 2500.0, 3000.0]))
-            Ts = float(rng.choice([2.0, 4.0, 6.0, 8.0, 10.0]))
+            w0 = float(rng.choice([1000.0, 1200.0, 1500.0, 1800.0, 2000.0, 2200.0, 2500.0, 2800.0, 3000.0]))
+            Ts = float(rng.choice([2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]))
             wq = float(round((0.6 * w0) / 100.0) * 100.0)
             if difficulty == "edge":
                 edge_tag = "no_grid"
@@ -1430,8 +1430,8 @@ def generate_family(typ: str, out_dir: Path, images_root: Path, master_seed: int
             )
 
         elif typ == "pump_curve":
-            H0 = float(rng.choice([40.0, 50.0, 60.0, 70.0]))
-            q_half = float(rng.choice([30.0, 40.0, 50.0, 60.0]))
+            H0 = float(rng.choice([35.0, 40.0, 45.0, 50.0, 55.0, 60.0, 65.0, 70.0, 75.0]))
+            q_half = float(rng.choice([25.0, 30.0, 35.0, 40.0, 45.0, 50.0, 55.0, 60.0, 65.0]))
             a = (H0 / 2.0) / max(1e-9, (q_half ** 2))
             q_zero = float(np.sqrt(H0 / a))
             q_op = float(q_half / 2.0)
