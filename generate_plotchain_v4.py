@@ -1136,6 +1136,10 @@ def _mk_item(
     else:
         raise ValueError(f"Unknown family: {typ}")
 
+    # Separate final fields from checkpoint fields
+    final_fields = [k for k in gt.keys() if not k.startswith("cp_")]
+    checkpoint_fields = [k for k in gt.keys() if k.startswith("cp_")]
+    
     return {
         "id": f"{typ}_{idx:03d}",
         "type": typ,
@@ -1147,6 +1151,8 @@ def _mk_item(
             "seed": meta.seed,
             "difficulty": meta.difficulty,
             "edge_tag": meta.edge_tag,
+            "final_fields": final_fields,
+            "checkpoint_fields": checkpoint_fields,
             **axis_meta,
         },
     }
