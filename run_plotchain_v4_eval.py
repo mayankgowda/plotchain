@@ -39,6 +39,9 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+# Import concurrent evaluation
+from concurrent_eval import run_concurrent_evaluation, PROVIDER_RATE_LIMITS
+
 
 # -------------------------
 # JSONL helpers
@@ -900,6 +903,8 @@ def run_mode_run(
     seed: int,
     overwrite: bool,
     sleep_s: float,
+    concurrent: Optional[int] = None,
+    sequential: bool = False,
 ) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -927,6 +932,34 @@ def run_mode_run(
 
         print(f"[run] writing raw: {raw_path}")
 
+        # Use concurrent evaluation unless --sequential is specified
+        if not sequential:
+            try:
+                all_rows.extend(
+                    run_concurrent_evaluation(
+                        items=items,
+                        spec=spec,
+                        images_root=images_root,
+                        jsonl_path=jsonl_path,
+                        max_output_tokens=max_output_tokens,
+                        call_model_fn=call_model,
+                        build_prompt_fn=build_prompt,
+                        resolve_image_path_fn=resolve_image_path,
+                        get_item_id_fn=get_item_id,
+                        get_item_type_fn=get_item_type,
+                        extract_first_json_fn=extract_first_json,
+                        score_item_fields_fn=score_item_fields,
+                        policy=policy,
+                        raw_file_path=raw_path,
+                        max_workers=concurrent,
+                    )
+                )
+                continue  # Skip sequential processing
+            except Exception as e:
+                print(f"[warning] Concurrent evaluation failed: {e}, falling back to sequential")
+                # Fall through to sequential processing
+        
+        # Sequential processing (original code)
         with raw_path.open("w", encoding="utf-8") as raw_f:
             for it in tqdm(items, desc=f"{spec.provider}:{spec.model}"):
                 iid = get_item_id(it)
@@ -1051,6 +1084,8 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0, help="Deterministic shuffle seed (0 = no shuffle)")
     ap.add_argument("--overwrite", action="store_true", help="Overwrite raw_<provider>_<model>.jsonl if it exists")
     ap.add_argument("--sleep_s", type=float, default=0.0, help="Sleep between model calls (seconds)")
+    ap.add_argument("--concurrent", type=int, default=None, help="Number of concurrent requests (None = use provider default)")
+    ap.add_argument("--sequential", action="store_true", help="Use sequential processing instead of concurrent")
 
     args = ap.parse_args()
 
@@ -1084,6 +1119,8 @@ def main() -> None:
             seed=args.seed,
             overwrite=args.overwrite,
             sleep_s=args.sleep_s,
+            concurrent=args.concurrent,
+            sequential=args.sequential,
         )
     else:
         run_mode_score(

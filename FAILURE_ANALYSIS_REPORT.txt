@@ -1,0 +1,253 @@
+
+====================================================================================================
+FIELD: fft_spectrum.cp_peak_ratio
+====================================================================================================
+
+Total items: 30
+All 3 failed: 28 (93.3%)
+
+Tolerance (plotread policy):
+  abs_tol: 0.200000
+  rel_tol: 0.150000
+
+Error Statistics:
+  GPT:   mean=2.468, median=1.025, max=6.000
+  Claude: mean=1.000, median=1.000, max=1.000
+  Gemini: mean=2.693, median=1.620, max=9.000
+
+Detailed Error vs Tolerance Analysis (first 15 failures):
+ID                        GT           GPT          Claude       Gemini       GPT Err    Claude Err Gemini Err Pass?     
+------------------------------------------------------------------------------------------------------------------------
+fft_spectrum_000          5.000        2.000        null         14.000       3.000      N/A        9.000      N/N/N     
+fft_spectrum_001          2.000        1.000        null         0.750        1.000      N/A        1.250      N/N/N     
+fft_spectrum_002          4.000        2.000        null         0.200        2.000      N/A        3.800      N/N/N     
+fft_spectrum_003          2.000        1.000        null         0.750        1.000      N/A        1.250      N/N/N     
+fft_spectrum_004          2.000        1.000        null         1.000        1.000      N/A        1.000      N/N/N     
+fft_spectrum_005          2.000        1.000        1.000        0.890        1.000      1.000      1.110      N/N/N     
+fft_spectrum_006          4.000        10.000       null         0.178        6.000      N/A        3.822      N/N/N     
+fft_spectrum_007          4.000        3.000        null         0.200        1.000      N/A        3.800      N/N/N     
+fft_spectrum_008          2.000        1.000        null         0.891        1.000      N/A        1.109      N/N/N     
+fft_spectrum_009          2.000        1.000        1.000        1.000        1.000      1.000      1.000      N/N/N     
+fft_spectrum_010          4.000        0.200        null         0.178        3.800      N/A        3.822      N/N/N     
+fft_spectrum_011          4.000        0.500        null         0.178        3.500      N/A        3.822      N/N/N     
+fft_spectrum_012          5.000        0.350        null         0.178        4.650      N/A        4.822      N/N/N     
+fft_spectrum_014          4.000        0.200        null         2.000        3.800      N/A        2.000      N/N/N     
+fft_spectrum_015          2.000        0.950        null         6.000        1.050      N/A        4.000      N/N/N     
+
+Null predictions:
+  GPT: 0/28 (0.0%)
+  Claude: 25/28 (89.3%)
+  Gemini: 1/28 (3.6%)
+
+====================================================================================================
+RAW OUTPUT INSPECTION (checking for parsing/fraction issues)
+====================================================================================================
+
+Item: fft_spectrum_000
+  Ground Truth: 5.0
+  GPT raw parsed: None (type: NoneType)
+  Claude raw parsed: None (type: NoneType)
+
+Item: fft_spectrum_001
+  Ground Truth: 2.0
+  GPT raw parsed: 1 (type: int)
+  Claude raw parsed: None (type: NoneType)
+
+Item: fft_spectrum_002
+  Ground Truth: 4.0
+  GPT raw parsed: None (type: NoneType)
+  Claude raw parsed: None (type: NoneType)
+
+Item: fft_spectrum_003
+  Ground Truth: 2.0
+  GPT raw parsed: None (type: NoneType)
+  Claude raw parsed: None (type: NoneType)
+
+Item: fft_spectrum_004
+  Ground Truth: 2.0
+  GPT raw parsed: 0 (type: int)
+  Claude raw parsed: None (type: NoneType)
+
+====================================================================================================
+ERROR MAGNITUDE ANALYSIS
+====================================================================================================
+
+Error magnitude distribution:
+  GPT:   0 close (≤2x tol), 28 way off (>2x tol)
+  Claude: 0 close (≤2x tol), 3 way off (>2x tol)
+  Gemini: 0 close (≤2x tol), 27 way off (>2x tol)
+
+====================================================================================================
+CONCLUSION
+====================================================================================================
+✅ FAILURES ARE GENUINE MODEL ERRORS
+   - Most errors are way off (>2x tolerance)
+   - Models are making substantial mistakes, not just barely failing
+
+====================================================================================================
+FIELD: bandpass_response.cp_f1_3db_hz
+====================================================================================================
+
+Total items: 30
+All 3 failed: 24 (80.0%)
+
+Tolerance (plotread policy):
+  abs_tol: 0.000000
+  rel_tol: 0.080000
+
+Error Statistics:
+  GPT:   mean=69.150, median=40.100, max=425.000
+  Claude: mean=128.030, median=82.600, max=500.000
+  Gemini: mean=186.621, median=99.850, max=899.100
+
+Detailed Error vs Tolerance Analysis (first 15 failures):
+ID                        GT           GPT          Claude       Gemini       GPT Err    Claude Err Gemini Err Pass?     
+------------------------------------------------------------------------------------------------------------------------
+bandpass_response_000     13.600       100.000      100.000      127.000      86.400     86.400     113.400    N/N/N     
+bandpass_response_001     16.600       20.000       15.000       28.000       3.400      1.600      11.400     N/N/N     
+bandpass_response_002     6.000        7.000        40.000       64.000       1.000      34.000     58.000     N/N/N     
+bandpass_response_003     90.900       250.000      400.000      990.000      159.100    309.100    899.100    N/N/N     
+bandpass_response_004     17.400       100.000      100.000      175.000      82.600     82.600     157.600    N/N/N     
+bandpass_response_005     1.800        2.000        null         27.000       0.200      N/A        25.200     N/N/N     
+bandpass_response_006     1.400        6.000        10.000       14.000       4.600      8.600      12.600     N/N/N     
+bandpass_response_007     197.800      380.000      300.000      615.000      182.200    102.200    417.200    N/N/N     
+bandpass_response_008     33.500       100.000      40.000       40.000       66.500     6.500      6.500      N/N/N     
+bandpass_response_009     3.300        4.000        5.000        4.000        0.700      1.700      0.700      N/N/N     
+bandpass_response_010     61.200       130.000      250.000      370.000      68.800     188.800    308.800    N/N/N     
+bandpass_response_012     467.400      615.000      692.000      618.000      147.600    224.600    150.600    N/N/N     
+bandpass_response_013     201.800      300.000      615.000      620.000      98.200     413.200    418.200    N/N/N     
+bandpass_response_014     80.800       150.000      250.000      580.000      69.200     169.200    499.200    N/N/N     
+bandpass_response_015     190.000      615.000      690.000      620.000      425.000    500.000    430.000    N/N/N     
+
+Null predictions:
+  GPT: 0/24 (0.0%)
+  Claude: 1/24 (4.2%)
+  Gemini: 0/24 (0.0%)
+
+====================================================================================================
+RAW OUTPUT INSPECTION (checking for parsing/fraction issues)
+====================================================================================================
+
+Item: bandpass_response_000
+  Ground Truth: 13.6
+  GPT raw parsed: 80 (type: int)
+  Claude raw parsed: 100 (type: int)
+    ⚠️  Raw text contains '/' - might be fraction
+
+Item: bandpass_response_001
+  Ground Truth: 16.6
+  GPT raw parsed: 20 (type: int)
+  Claude raw parsed: 15 (type: int)
+    ⚠️  Raw text contains '/' - might be fraction
+
+Item: bandpass_response_002
+  Ground Truth: 6.0
+  GPT raw parsed: 7 (type: int)
+  Claude raw parsed: 40 (type: int)
+    ⚠️  Raw text contains '/' - might be fraction
+
+Item: bandpass_response_003
+  Ground Truth: 90.9
+  GPT raw parsed: 110 (type: int)
+  Claude raw parsed: 400 (type: int)
+
+Item: bandpass_response_004
+  Ground Truth: 17.4
+  GPT raw parsed: 115 (type: int)
+  Claude raw parsed: 100 (type: int)
+    ⚠️  Raw text contains '/' - might be fraction
+
+====================================================================================================
+ERROR MAGNITUDE ANALYSIS
+====================================================================================================
+
+Error magnitude distribution:
+  GPT:   0 close (≤2x tol), 24 way off (>2x tol)
+  Claude: 0 close (≤2x tol), 23 way off (>2x tol)
+  Gemini: 0 close (≤2x tol), 24 way off (>2x tol)
+
+====================================================================================================
+CONCLUSION
+====================================================================================================
+✅ FAILURES ARE GENUINE MODEL ERRORS
+   - Most errors are way off (>2x tolerance)
+   - Models are making substantial mistakes, not just barely failing
+
+====================================================================================================
+FIELD: bandpass_response.bandwidth_hz
+====================================================================================================
+
+Total items: 30
+All 3 failed: 19 (63.3%)
+
+Tolerance (plotread policy):
+  abs_tol: 0.000000
+  rel_tol: 0.080000
+
+Error Statistics:
+  GPT:   mean=120.000, median=57.300, max=584.200
+  Claude: mean=189.278, median=95.500, max=910.200
+  Gemini: mean=173.858, median=107.700, max=1140.900
+
+Detailed Error vs Tolerance Analysis (first 15 failures):
+ID                        GT           GPT          Claude       Gemini       GPT Err    Claude Err Gemini Err Pass?     
+------------------------------------------------------------------------------------------------------------------------
+bandpass_response_000     204.800      400.000      300.000      50.000       195.200    95.200     154.800    N/N/N     
+bandpass_response_001     54.200       60.000       45.000       61.000       5.800      9.200      6.800      N/N/N     
+bandpass_response_003     1730.900     1500.000     1400.000     590.000      230.900    330.900    1140.900   N/N/N     
+bandpass_response_004     262.800      350.000      300.000      50.000       87.200     37.200     212.800    N/N/N     
+bandpass_response_005     33.600       23.000       null         6.000        10.600     N/A        27.600     N/N/N     
+bandpass_response_006     21.400       18.000       30.000       4.000        3.400      8.600      17.400     N/N/N     
+bandpass_response_007     645.800      1230.000     550.000      410.000      584.200    95.800     235.800    N/N/N     
+bandpass_response_008     304.900      251.000      460.000      460.000      53.900     155.100    155.100    N/N/N     
+bandpass_response_009     17.300       22.000       40.000       32.000       4.700      22.700     14.700     N/N/N     
+bandpass_response_012     1107.700     850.000      615.000      1000.000     257.700    492.700    107.700    N/N/N     
+bandpass_response_015     982.400      1200.000     615.000      630.000      217.600    367.400    352.400    N/N/N     
+bandpass_response_019     289.800      180.000      1200.000     116.700      109.800    910.200    173.100    N/N/N     
+bandpass_response_020     28.700       25.000       20.000       9.000        3.700      8.700      19.700     N/N/N     
+bandpass_response_021     568.000      325.000      250.000      300.000      243.000    318.000    268.000    N/N/N     
+bandpass_response_022     46.700       90.000       75.000       23.800       43.300     28.300     22.900     N/N/N     
+
+Null predictions:
+  GPT: 0/19 (0.0%)
+  Claude: 1/19 (5.3%)
+  Gemini: 0/19 (0.0%)
+
+====================================================================================================
+RAW OUTPUT INSPECTION (checking for parsing/fraction issues)
+====================================================================================================
+
+Item: bandpass_response_000
+  Ground Truth: 204.8
+  GPT raw parsed: 360 (type: int)
+  Claude raw parsed: 300 (type: int)
+    ⚠️  Raw text contains '/' - might be fraction
+
+Item: bandpass_response_001
+  Ground Truth: 54.2
+  GPT raw parsed: 60 (type: int)
+  Claude raw parsed: 45 (type: int)
+    ⚠️  Raw text contains '/' - might be fraction
+
+Item: bandpass_response_003
+  Ground Truth: 1730.9
+  GPT raw parsed: 1190 (type: int)
+  Claude raw parsed: 1400 (type: int)
+
+Item: bandpass_response_004
+  Ground Truth: 262.8
+  GPT raw parsed: 470 (type: int)
+  Claude raw parsed: 300 (type: int)
+    ⚠️  Raw text contains '/' - might be fraction
+
+Item: bandpass_response_005
+  Ground Truth: 33.6
+  GPT raw parsed: 38 (type: int)
+Traceback (most recent call last):
+  File "/Users/mayankgowda/project/plotchain_v1/analyze_failures.py", line 248, in <module>
+    analyze_field('bandpass_response', 'bandwidth_hz')
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/mayankgowda/project/plotchain_v1/analyze_failures.py", line 171, in analyze_field
+    raw_val = parsed.get(field_name)
+              ^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'get'
