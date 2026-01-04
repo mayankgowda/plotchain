@@ -174,27 +174,22 @@ ANSWER_FORMAT: Dict[str, Dict[str, int]] = {
         "zero_real": 0,
         "zero_imag": 0,
     },
-    # nyquist
-    "nyquist_plot": {
-        "real_at_w0": 2,
-        "real_at_wc": 2,
-        "imag_at_wc": 2,
+    "stress_strain": {
+        "yield_strength_mpa": 0,
+        "uts_mpa": 0,
+        "fracture_strain": 3
     },
-    # constellation
-    "constellation": {
-        "num_clusters": 0,
-        "avg_radius": 2,
+    "torque_speed": {
+        "stall_torque_nm": 1,
+        "no_load_speed_rpm": 0
     },
-    # roc
-    "roc_curve": {
-        "tpr_at_fpr_0p1": 2,
-        "tpr_at_fpr_0p2": 2,
-        "cp_auc": 3,
+    "pump_curve": {
+        "head_at_qop_m": 1,
+        "q_at_half_head_m3h": 0
     },
-    # learning curve
-    "learning_curve": {
-        "best_val_acc": 3,
-        "epoch_of_best": 0,
+    "sn_curve": {
+        "stress_at_1e5_mpa": 0,
+        "endurance_limit_mpa": 0
     },
 }
 
@@ -864,170 +859,210 @@ def render_pole_zero(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict
     return {"x_min": -lim, "x_max": lim, "y_min": -lim, "y_max": lim,
             "tick_step_x": step, "tick_step_y": step}
 
+# ----------------------------
+# Family: Stress–Strain Curve
+# ----------------------------
+def baseline_stress_strain(pp: Dict[str, Any]) -> Dict[str, float]:
+    E_mpa = float(pp["E_gpa"]) * 1_000.0
+    ys = float(pp["yield_strength_mpa"])
+    uts = float(pp["uts_mpa"])
+    eps_f = float(pp["fracture_strain"])
+    eps_y = ys / E_mpa
+    eps_uts = float(pp["uts_strain"])
+    return {
+        "yield_strength_mpa": float(quantize_value("stress_strain", "yield_strength_mpa", ys)),
+        "uts_mpa": float(quantize_value("stress_strain", "uts_mpa", uts)),
+        "fracture_strain": float(quantize_value("stress_strain", "fracture_strain", eps_f)),
+        "cp_yield_strain": eps_y,
+        "cp_uts_strain": eps_uts,
+    }
 
-# ---------------------------
-# Family 12: Nyquist plot (1st-order lowpass) with marked wc point
-# ---------------------------
 
-def baseline_nyquist(pp: Dict[str, Any]) -> Dict[str, Any]:
-    K = float(pp["K"])
-    # At w=0: K+0j
-    # At w=wc: K/(1+j) = K/2 - j K/2
-    gt = {"real_at_w0": K, "real_at_wc": K / 2.0, "imag_at_wc": -K / 2.0}
-    return {k: quantize_value("nyquist_plot", k, v) for k, v in gt.items()}
-
-
-def render_nyquist(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
+def render_stress_strain(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
     import matplotlib.pyplot as plt
+    E_mpa = float(pp["E_gpa"]) * 1_000.0
+    ys = float(pp["yield_strength_mpa"])
+    uts = float(pp["uts_mpa"])
+    eps_f = float(pp["fracture_strain"])
+    eps_y = ys / E_mpa
+    eps_uts = float(pp["uts_strain"])
+    fs = float(pp["fracture_stress_mpa"])
+    noise = float(pp.get("noise", 0.0))
 
-    K = float(pp["K"])
-    w_max = float(pp["w_max"])
-    n = int(pp["n_points"])
+    strain = np.linspace(0.0, eps_f, 500)
+    stress = np.zeros_like(strain)
 
-    w = np.linspace(0.0, w_max, n)
-    # normalized wc = 1.0, H = K/(1+jw)
-    H = K / (1.0 + 1j * w)
-    re = np.real(H)
-    im = np.imag(H)
+    m1 = strain <= eps_y
+    stress[m1] = E_mpa * strain[m1]
 
-    fig, ax = plt.subplots(figsize=(5.4, 4.4))
-    ax.plot(re, im, linewidth=1.4)
-    ax.set_title("Nyquist Plot (1st-order)")
-    ax.set_xlabel("Re{H(jw)}")
-    ax.set_ylabel("Im{H(jw)}")
-    if meta.difficulty != "edge":
-        ax.grid(True, alpha=0.35)
+    m2 = (strain > eps_y) & (strain <= eps_uts)
+    stress[m2] = ys + (uts - ys) * (strain[m2] - eps_y) / max(1e-9, (eps_uts - eps_y))
 
-    # mark w=1 point
-    Hw = K / (1.0 + 1j * 1.0)
-    ax.scatter([np.real(Hw)], [np.imag(Hw)], s=35)
-    ax.text(np.real(Hw), np.imag(Hw), "  w=wc", fontsize=9, va="center", ha="left")
+    m3 = strain > eps_uts
+    stress[m3] = uts + (fs - uts) * (strain[m3] - eps_uts) / max(1e-9, (eps_f - eps_uts))
 
-    save_figure(fig, out_path)
-    plt.close(fig)
-
-    return {"x_min": float(np.min(re)), "x_max": float(np.max(re)),
-            "y_min": float(np.min(im)), "y_max": float(np.max(im)),
-            "tick_step_x": axis_ticks_linear(float(np.min(re)), float(np.max(re)), 6),
-            "tick_step_y": axis_ticks_linear(float(np.min(im)), float(np.max(im)), 6)}
-
-
-# ---------------------------
-# Family 13: Constellation (QPSK clusters)
-# ---------------------------
-
-def baseline_constellation(pp: Dict[str, Any]) -> Dict[str, Any]:
-    # QPSK nominal radius sqrt(2) with unit points at (+/-1, +/-1)
-    noise = float(pp["noise"])
-    # ground truth defined on nominal (noiseless) radius
-    gt = {"num_clusters": 4.0, "avg_radius": math.sqrt(2.0)}
-    return {k: quantize_value("constellation", k, v) for k, v in gt.items()}
-
-
-def render_constellation(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
-    import matplotlib.pyplot as plt
-
-    noise = float(pp["noise"])
-    n = int(pp["n_points"])
-
-    pts = np.array([[1, 1], [1, -1], [-1, 1], [-1, -1]], dtype=float)
-    rng = np.random.default_rng(meta.seed + 71)
-    samples = pts[rng.integers(0, 4, size=n)] + rng.normal(0.0, noise, size=(n, 2))
-
-    fig, ax = plt.subplots(figsize=(4.8, 4.8))
-    ax.scatter(samples[:, 0], samples[:, 1], s=10, alpha=0.7)
-    ax.set_title("Constellation Diagram (QPSK)")
-    ax.set_xlabel("In-phase (I)")
-    ax.set_ylabel("Quadrature (Q)")
-    ax.set_aspect("equal", "box")
-    if meta.difficulty != "edge":
-        ax.grid(True, alpha=0.3)
-
-    save_figure(fig, out_path)
-    plt.close(fig)
-
-    return {"x_min": float(np.min(samples[:, 0])), "x_max": float(np.max(samples[:, 0])),
-            "y_min": float(np.min(samples[:, 1])), "y_max": float(np.max(samples[:, 1])),
-            "tick_step_x": axis_ticks_linear(float(np.min(samples[:, 0])), float(np.max(samples[:, 0])), 6),
-            "tick_step_y": axis_ticks_linear(float(np.min(samples[:, 1])), float(np.max(samples[:, 1])), 6)}
-
-
-# ---------------------------
-# Family 14: ROC curve (analytic TPR = FPR^gamma)
-# ---------------------------
-
-def baseline_roc(pp: Dict[str, Any]) -> Dict[str, Any]:
-    gamma = float(pp["gamma"])
-    tpr_01 = (0.1 ** gamma)
-    tpr_02 = (0.2 ** gamma)
-    auc = 1.0 / (gamma + 1.0)
-    gt = {"tpr_at_fpr_0p1": tpr_01, "tpr_at_fpr_0p2": tpr_02, "cp_auc": auc}
-    return {k: quantize_value("roc_curve", k, v) for k, v in gt.items()}
-
-
-def render_roc(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
-    import matplotlib.pyplot as plt
-
-    gamma = float(pp["gamma"])
-    fpr = np.linspace(0.0, 1.0, int(pp["n_points"]))
-    tpr = np.power(fpr, gamma)
-
-    fig, ax = plt.subplots(figsize=(5.6, 4.2))
-    ax.plot(fpr, tpr, linewidth=1.4)
-    ax.plot([0, 1], [0, 1], linestyle="--", linewidth=1.0, alpha=0.7)
-    ax.set_title("ROC Curve")
-    ax.set_xlabel("False Positive Rate")
-    ax.set_ylabel("True Positive Rate")
-    if meta.difficulty != "edge":
-        ax.grid(True, alpha=0.3)
-
-    # helper verticals for 0.1 and 0.2 in clean/moderate
-    if meta.difficulty != "edge":
-        ax.axvline(0.1, linestyle=":", linewidth=1.0, alpha=0.8)
-        ax.axvline(0.2, linestyle=":", linewidth=1.0, alpha=0.8)
-
-    save_figure(fig, out_path)
-    plt.close(fig)
-
-    return {"x_min": 0.0, "x_max": 1.0, "y_min": 0.0, "y_max": 1.0,
-            "tick_step_x": 0.2, "tick_step_y": 0.2}
-
-
-# ---------------------------
-# Family 15: Learning curve
-# ---------------------------
-
-def baseline_learning_curve(pp: Dict[str, Any]) -> Dict[str, Any]:
-    val = np.array(pp["val_acc"], dtype=float)
-    best_idx = int(np.argmax(val))
-    gt = {"best_val_acc": float(val[best_idx]), "epoch_of_best": float(best_idx + 1)}  # epochs 1-indexed
-    return {k: quantize_value("learning_curve", k, v) for k, v in gt.items()}
-
-
-def render_learning_curve(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
-    import matplotlib.pyplot as plt
-
-    train = np.array(pp["train_acc"], dtype=float)
-    val = np.array(pp["val_acc"], dtype=float)
-    epochs = np.arange(1, len(train) + 1)
+    if noise > 0:
+        stress = stress * (1.0 + noise * np.random.default_rng(meta.seed).normal(0, 0.6, size=stress.shape))
 
     fig, ax = plt.subplots(figsize=(6.0, 3.6))
-    ax.plot(epochs, train, linewidth=1.4, label="train")
-    ax.plot(epochs, val, linewidth=1.4, label="val")
-    ax.set_title("Learning Curve")
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Accuracy")
-    ax.set_ylim(0.0, 1.02)
-    if meta.difficulty != "edge":
-        ax.grid(True, alpha=0.3)
-    ax.legend(loc="lower right", fontsize=9)
+    ax.plot(strain, stress, linewidth=1.6)
+    ax.set_title("Stress–Strain Curve")
+    ax.set_xlabel("Strain")
+    ax.set_ylabel("Stress (MPa)")
+    if pp.get("show_markers", False):
+        ax.plot([eps_y], [ys], "o", ms=5)
+        ax.plot([eps_uts], [uts], "o", ms=5)
+
+    x_max = eps_f * 1.05
+    y_max = uts * 1.10
+    ax.set_xlim(0.0, x_max)
+    ax.set_ylim(0.0, y_max)
+
+    xt = 0.05 if meta.difficulty != "edge" else 0.10
+    yt = 50.0 if meta.difficulty != "edge" else 100.0
+    ax.set_xticks(np.arange(0.0, x_max + 1e-9, xt))
+    ax.set_yticks(np.arange(0.0, y_max + 1e-9, yt))
+    if pp.get("grid", True):
+        ax.grid(True, alpha=0.30)
 
     save_figure(fig, out_path)
     plt.close(fig)
+    return {"x_min": 0.0, "x_max": x_max, "y_min": 0.0, "y_max": y_max, "tick_step_x": xt, "tick_step_y": yt}
 
-    return {"x_min": 1.0, "x_max": float(len(train)), "y_min": 0.0, "y_max": 1.0,
-            "tick_step_x": 5.0, "tick_step_y": 0.1}
 
+# ----------------------------
+# Family: Torque–Speed Curve
+# ----------------------------
+def baseline_torque_speed(pp: Dict[str, Any]) -> Dict[str, float]:
+    w0 = float(pp["no_load_speed_rpm"])
+    Ts = float(pp["stall_torque_nm"])
+    wq = float(pp["speed_q_rpm"])
+    Tq = Ts * (1.0 - wq / max(1e-9, w0))
+    return {
+        "stall_torque_nm": float(quantize_value("torque_speed", "stall_torque_nm", Ts)),
+        "no_load_speed_rpm": float(quantize_value("torque_speed", "no_load_speed_rpm", w0)),
+        "cp_torque_at_speed_q_nm": Tq,
+    }
+
+
+def render_torque_speed(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
+    import matplotlib.pyplot as plt
+    w0 = float(pp["no_load_speed_rpm"])
+    Ts = float(pp["stall_torque_nm"])
+    wq = float(pp["speed_q_rpm"])
+    w = np.linspace(0.0, w0, 200)
+    T = Ts * (1.0 - w / max(1e-9, w0))
+    Tq = Ts * (1.0 - wq / max(1e-9, w0))
+
+    fig, ax = plt.subplots(figsize=(6.0, 3.6))
+    ax.plot(w, T, lw=1.6)
+    ax.plot([wq], [Tq], "o", ms=5)
+    ax.set_title("Torque–Speed Curve")
+    ax.set_xlabel("Speed (rpm)")
+    ax.set_ylabel("Torque (N·m)")
+    x_max = w0 * 1.05
+    y_max = Ts * 1.20
+    ax.set_xlim(0.0, x_max)
+    ax.set_ylim(0.0, y_max)
+    ax.set_xticks(np.arange(0.0, x_max + 1e-9, 500.0))
+    ax.set_yticks(np.arange(0.0, y_max + 1e-9, 2.0))
+    if pp.get("grid", True):
+        ax.grid(True, alpha=0.30)
+    save_figure(fig, out_path)
+    plt.close(fig)
+    return {"x_min": 0.0, "x_max": x_max, "y_min": 0.0, "y_max": y_max, "tick_step_x": 500.0, "tick_step_y": 2.0}
+
+
+# ----------------------------
+# Family: Pump Curve (Head vs Flow)
+# ----------------------------
+def baseline_pump_curve(pp: Dict[str, Any]) -> Dict[str, float]:
+    H0 = float(pp["shutoff_head_m"])
+    q_half = float(pp["q_at_half_head_m3h"])
+    q_zero = float(pp["q_zero_head_m3h"])
+    q_op = float(pp["q_op_m3h"])
+    a = float(pp["a"])
+    H_op = H0 - a * (q_op ** 2)
+    return {
+        "head_at_qop_m": float(quantize_value("pump_curve", "head_at_qop_m", H_op)),
+        "q_at_half_head_m3h": float(quantize_value("pump_curve", "q_at_half_head_m3h", q_half)),
+        "cp_shutoff_head_m": H0,
+        "cp_qmax_m3h": q_zero,
+    }
+
+
+def render_pump_curve(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
+    import matplotlib.pyplot as plt
+    H0 = float(pp["shutoff_head_m"])
+    q_zero = float(pp["q_zero_head_m3h"])
+    q_op = float(pp["q_op_m3h"])
+    a = float(pp["a"])
+    q = np.linspace(0.0, q_zero, 400)
+    H = np.clip(H0 - a * (q ** 2), 0.0, None)
+    H_op = float(H0 - a * (q_op ** 2))
+    fig, ax = plt.subplots(figsize=(6.0, 3.6))
+    ax.plot(q, H, lw=1.6)
+    ax.plot([q_op], [H_op], "o", ms=5)
+    ax.set_title("Pump Curve (Head vs Flow)")
+    ax.set_xlabel("Flow Q (m³/h)")
+    ax.set_ylabel("Head H (m)")
+    x_max = q_zero * 1.05
+    y_max = H0 * 1.10
+    ax.set_xlim(0.0, x_max)
+    ax.set_ylim(0.0, y_max)
+    ax.set_xticks(np.arange(0.0, x_max + 1e-9, 10.0))
+    ax.set_yticks(np.arange(0.0, y_max + 1e-9, 5.0))
+    if pp.get("grid", True):
+        ax.grid(True, alpha=0.30)
+    save_figure(fig, out_path)
+    plt.close(fig)
+    return {"x_min": 0.0, "x_max": x_max, "y_min": 0.0, "y_max": y_max, "tick_step_x": 10.0, "tick_step_y": 5.0}
+
+
+# ----------------------------
+# Family: S–N Curve (log-x)
+# ----------------------------
+def baseline_sn_curve(pp: Dict[str, Any]) -> Dict[str, float]:
+    S1 = float(pp["stress_at_1e3_mpa"])
+    Se = float(pp["endurance_limit_mpa"])
+    b = float(np.log(Se / S1) / np.log(1e6 / 1e3))
+    S_1e5 = float(S1 * ((1e5 / 1e3) ** b))
+    return {
+        "stress_at_1e5_mpa": float(quantize_value("sn_curve", "stress_at_1e5_mpa", S_1e5)),
+        "endurance_limit_mpa": float(quantize_value("sn_curve", "endurance_limit_mpa", Se)),
+        "cp_stress_at_1e3_mpa": S1,
+    }
+
+
+def render_sn_curve(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[str, Any]:
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import ScalarFormatter
+    S1 = float(pp["stress_at_1e3_mpa"])
+    Se = float(pp["endurance_limit_mpa"])
+    b = float(np.log(Se / S1) / np.log(1e6 / 1e3))
+    N = np.logspace(3, 7, 300)
+    S = S1 * ((N / 1e3) ** b)
+    S = np.where(N >= 1e6, Se, S)
+    fig, ax = plt.subplots(figsize=(6.0, 3.6))
+    ax.plot(N, S, lw=1.6)
+    ax.set_xscale("log")
+    ax.set_title("S–N Curve (Fatigue)")
+    ax.set_xlabel("Cycles N (log scale)")
+    ax.set_ylabel("Stress (MPa)")
+    ax.set_xlim(1e3, 1e7)
+    y_max = float(max(S1, Se) * 1.10)
+    ax.set_ylim(0.0, y_max)
+    xt = [1e3, 1e4, 1e5, 1e6, 1e7]
+    ax.set_xticks(xt)
+    ax.get_xaxis().set_major_formatter(ScalarFormatter())
+    ax.set_xticklabels([f"1e{int(np.log10(t))}" for t in xt])
+    yt = 50.0 if meta.difficulty != "edge" else 100.0
+    ax.set_yticks(np.arange(0.0, y_max + 1e-9, yt))
+    if pp.get("grid", True):
+        ax.grid(True, which="both", alpha=0.30)
+    save_figure(fig, out_path)
+    plt.close(fig)
+    return {"x_min": 1e3, "x_max": 1e7, "y_min": 0.0, "y_max": y_max, "tick_step_x": None, "tick_step_y": yt}
 
 # ---------------------------
 # Orchestrator for all families
@@ -1045,10 +1080,10 @@ FAMILIES = [
     "iv_diode",
     "transfer_characteristic",
     "pole_zero",
-    "nyquist_plot",
-    "constellation",
-    "roc_curve",
-    "learning_curve",
+    "stress_strain",
+    "torque_speed",
+    "pump_curve",
+    "sn_curve",
 ]
 
 
@@ -1090,14 +1125,14 @@ def _mk_item(
         axis_meta = render_transfer(pp, abs_img, meta)
     elif typ == "pole_zero":
         axis_meta = render_pole_zero(pp, abs_img, meta)
-    elif typ == "nyquist_plot":
-        axis_meta = render_nyquist(pp, abs_img, meta)
-    elif typ == "constellation":
-        axis_meta = render_constellation(pp, abs_img, meta)
-    elif typ == "roc_curve":
-        axis_meta = render_roc(pp, abs_img, meta)
-    elif typ == "learning_curve":
-        axis_meta = render_learning_curve(pp, abs_img, meta)
+    elif typ == "stress_strain":
+        axis_meta = render_stress_strain(pp, abs_img, meta)
+    elif typ == "torque_speed":
+        axis_meta = render_torque_speed(pp, abs_img, meta)
+    elif typ == "pump_curve":
+        axis_meta = render_pump_curve(pp, abs_img, meta)
+    elif typ == "sn_curve":
+        axis_meta = render_sn_curve(pp, abs_img, meta)
     else:
         raise ValueError(f"Unknown family: {typ}")
 
@@ -1347,55 +1382,75 @@ def generate_family(typ: str, out_dir: Path, images_root: Path, master_seed: int
                 "Return numeric JSON."
             )
 
-        elif typ == "nyquist_plot":
-            K = float(rng.choice([0.5, 1.0, 2.0, 5.0]))
-            pp = {"K": K, "w_max": 5.0, "n_points": 600}
-            gt = baseline_nyquist(pp)
+        elif typ == "stress_strain":
+            E_gpa = 200.0
+            ys = float(rng.choice([200.0, 250.0, 300.0, 350.0, 400.0, 450.0, 500.0]))
+            uts = float(rng.choice([ys + 100.0, ys + 150.0, ys + 200.0]))
+            eps_f = float(rng.choice([0.15, 0.20, 0.25, 0.30]))
+            eps_uts = float(rng.choice([0.08, 0.10, 0.12, 0.15]))
+            if eps_uts >= eps_f - 0.03:
+                eps_uts = max(0.06, eps_f - 0.05)
+            fs = float(round((0.75 * uts) / 25.0) * 25.0)
+            if difficulty == "edge":
+                edge_tag = "no_grid_noise"
+            pp = {
+                "E_gpa": E_gpa, "yield_strength_mpa": ys, "uts_mpa": uts,
+                "fracture_strain": eps_f, "uts_strain": eps_uts, "fracture_stress_mpa": fs,
+                "grid": (difficulty != "edge"), "show_markers": (difficulty == "clean"),
+                "noise": (0.0 if difficulty != "edge" else 0.01),
+            }
+            gt = baseline_stress_strain(pp)
             q = (
-                "From the Nyquist plot, estimate:\n"
-                "1) real_at_w0\n"
-                "2) real_at_wc (marked point)\n"
-                "3) imag_at_wc (marked point)\n"
+                "From the stress-strain curve, estimate:\n"
+                "1) yield_strength_mpa (MPa)\n"
+                "2) uts_mpa (MPa, ultimate tensile strength)\n"
+                "3) fracture_strain\n"
                 "Return numeric JSON."
             )
 
-        elif typ == "constellation":
-            noise = 0.06 if difficulty == "clean" else (0.10 if difficulty == "moderate" else 0.16)
-            pp = {"noise": float(noise), "n_points": 400}
-            gt = baseline_constellation(pp)
+        elif typ == "torque_speed":
+            w0 = float(rng.choice([1000.0, 1500.0, 2000.0, 2500.0, 3000.0]))
+            Ts = float(rng.choice([2.0, 4.0, 6.0, 8.0, 10.0]))
+            wq = float(round((0.6 * w0) / 100.0) * 100.0)
+            if difficulty == "edge":
+                edge_tag = "no_grid"
+            pp = {"no_load_speed_rpm": w0, "stall_torque_nm": Ts, "speed_q_rpm": wq, "grid": (difficulty != "edge")}
+            gt = baseline_torque_speed(pp)
             q = (
-                "From the constellation plot, estimate:\n"
-                "1) num_clusters\n"
-                "2) avg_radius\n"
+                "From the torque-speed curve, estimate:\n"
+                "1) stall_torque_nm (N·m)\n"
+                "2) no_load_speed_rpm (rpm)\n"
                 "Return numeric JSON."
             )
 
-        elif typ == "roc_curve":
-            gamma = float(rng.choice([0.3, 0.5, 0.7, 0.9]))
-            pp = {"gamma": gamma, "n_points": 250}
-            gt = baseline_roc(pp)
+        elif typ == "pump_curve":
+            H0 = float(rng.choice([40.0, 50.0, 60.0, 70.0]))
+            q_half = float(rng.choice([30.0, 40.0, 50.0, 60.0]))
+            a = (H0 / 2.0) / max(1e-9, (q_half ** 2))
+            q_zero = float(np.sqrt(H0 / a))
+            q_op = float(q_half / 2.0)
+            if difficulty == "edge":
+                edge_tag = "no_grid"
+            pp = {"shutoff_head_m": H0, "q_at_half_head_m3h": q_half, "q_zero_head_m3h": q_zero, "q_op_m3h": q_op, "a": a, "grid": (difficulty != "edge")}
+            gt = baseline_pump_curve(pp)
             q = (
-                "From the ROC curve, estimate:\n"
-                "1) tpr_at_fpr_0p1\n"
-                "2) tpr_at_fpr_0p2\n"
+                "From the pump curve (head vs flow), estimate:\n"
+                "1) head_at_qop_m (m) at the operating point\n"
+                "2) q_at_half_head_m3h (m³/h) flow at half shutoff head\n"
                 "Return numeric JSON."
             )
 
-        elif typ == "learning_curve":
-            epochs = 30
-            # Generate monotonic train; val peaks then slightly declines (edge more noisy)
-            base = np.linspace(0.60, 0.98, epochs)
-            train = np.clip(base + 0.01 * rng.normal(0, 0.5, epochs), 0.0, 1.0)
-            peak_epoch = int(rng.choice([10, 12, 15, 18, 20, 22]))
-            val = np.linspace(0.55, 0.88, epochs)
-            val[peak_epoch:] = val[peak_epoch:] - np.linspace(0.0, 0.05, epochs - peak_epoch)
-            val = np.clip(val + (0.01 if difficulty != "edge" else 0.02) * rng.normal(0, 0.6, epochs), 0.0, 1.0)
-            pp = {"train_acc": [float(x) for x in train], "val_acc": [float(x) for x in val]}
-            gt = baseline_learning_curve(pp)
+        elif typ == "sn_curve":
+            S1 = float(rng.choice([450.0, 500.0, 550.0, 600.0]))
+            Se = float(rng.choice([200.0, 225.0, 250.0, 275.0, 300.0]))
+            if difficulty == "edge":
+                edge_tag = "no_grid"
+            pp = {"stress_at_1e3_mpa": S1, "endurance_limit_mpa": Se, "knee_cycles": 1e6, "grid": (difficulty != "edge")}
+            gt = baseline_sn_curve(pp)
             q = (
-                "From the learning curve plot, estimate:\n"
-                "1) best_val_acc\n"
-                "2) epoch_of_best\n"
+                "From the S-N curve (fatigue), estimate:\n"
+                "1) stress_at_1e5_mpa (MPa) at 10^5 cycles\n"
+                "2) endurance_limit_mpa (MPa)\n"
                 "Return numeric JSON."
             )
 
@@ -1435,14 +1490,14 @@ def baseline_for_item(it: Dict[str, Any]) -> Dict[str, Any]:
         return baseline_transfer(pp)
     if typ == "pole_zero":
         return baseline_pole_zero(pp)
-    if typ == "nyquist_plot":
-        return baseline_nyquist(pp)
-    if typ == "constellation":
-        return baseline_constellation(pp)
-    if typ == "roc_curve":
-        return baseline_roc(pp)
-    if typ == "learning_curve":
-        return baseline_learning_curve(pp)
+    if typ == "stress_strain":
+        return baseline_stress_strain(pp)
+    if typ == "torque_speed":
+        return baseline_torque_speed(pp)
+    if typ == "pump_curve":
+        return baseline_pump_curve(pp)
+    if typ == "sn_curve":
+        return baseline_sn_curve(pp)
     raise ValueError(f"Unknown type: {typ}")
 
 
