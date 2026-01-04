@@ -1,0 +1,20 @@
+====================================================================================================
+CHECKSUMS FOR REPRODUCIBILITY ARTIFACTS
+====================================================================================================
+
+generate_plotchain_v4.py:
+  SHA256: 46a04671b5729ea8caa9ed2867ee508f90b82bd9ccc1c81a2972b71bdf55df7d
+  Size: 55,429 bytes
+
+run_plotchain_v4_eval.py:
+  SHA256: 3527efd0576f7ea44a7d35cb0adcd14f36ae9bba256f5e9d37c5004153368cde
+  Size: 39,103 bytes
+
+concurrent_eval.py:
+  SHA256: 41793b676ef0edf149a23ac4f211c17d7b3230c2f901417534dc73e6886aafa3
+  Size: 8,428 bytes
+
+data/plotchain_v4/plotchain_v4.jsonl:
+  SHA256: d5875f38c5e0f2dc2561d5973283c5c4fcc5df0e1774682d557443e6d273d141
+  Size: 357,724 bytes
+

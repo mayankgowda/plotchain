@@ -744,6 +744,7 @@ def openai_call(model: str, image_path: Path, prompt: str, max_output_tokens: in
             ],
         }],
         max_output_tokens=max_output_tokens,
+        temperature=0,  # Deterministic for reproducibility
     )
     return getattr(resp, "output_text", "") or ""
 
@@ -762,6 +763,10 @@ def gemini_call(model: str, image_path: Path, prompt: str, max_output_tokens: in
             types.Part.from_bytes(data=image_bytes, mime_type=mime),
             prompt,
         ],
+        config=types.GenerateContentConfig(
+            temperature=0,  # Deterministic for reproducibility
+            max_output_tokens=max_output_tokens,
+        ),
     )
     return getattr(resp, "text", "") or ""
 
@@ -778,6 +783,7 @@ def anthropic_call(model: str, image_path: Path, prompt: str, max_output_tokens:
     msg = client.messages.create(
         model=model,
         max_tokens=max_output_tokens,
+        temperature=0,  # Deterministic for reproducibility
         messages=[{
             "role": "user",
             "content": [
