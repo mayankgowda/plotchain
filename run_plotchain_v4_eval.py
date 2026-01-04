@@ -252,7 +252,7 @@ def build_prompt(it: Dict[str, Any]) -> str:
         "Return ONLY a single JSON object matching this schema (numbers or null; no strings; no units; no extra keys):\n"
         f"{schema}\n\n"
         "Notes:\n"
-        "- Use cp_* fields as intermediate plot reads (checkpoints).\n"
+        "- Use cp_* fields as intermediate plot reads (checkpoints) that help verify your understanding of the plot.\n"
         "- If you cannot determine a value, output null for that key.\n"
         "- IMPORTANT: do NOT output arithmetic expressions like 1025/615; output a decimal number.\n"
     )
