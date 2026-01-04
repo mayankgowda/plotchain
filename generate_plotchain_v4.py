@@ -418,16 +418,12 @@ def _bandpass_mag(f: np.ndarray, f0: float, Q: float) -> np.ndarray:
 
 
 def _bandpass_3db_points(f0: float, Q: float) -> Tuple[float, float]:
-    # Solve |H|^2 = 1/2 for normalized bandpass:
-    # w^2 = ((2Q^2+1) ± sqrt((2Q^2+1)^2 - 4Q^2)) / (2Q^2)
-    Q2 = Q * Q
-    a = 2.0 * Q2 + 1.0
-    disc = max(a * a - 4.0 * Q2, 1e-12)
-    w2_1 = (a - math.sqrt(disc)) / (2.0 * Q2)
-    w2_2 = (a + math.sqrt(disc)) / (2.0 * Q2)
-    w1 = math.sqrt(max(w2_1, 1e-12))
-    w2 = math.sqrt(max(w2_2, 1e-12))
-    return float(f0 * w1), float(f0 * w2)
+    # Standard formula for 3dB bandwidth of 2nd-order bandpass filter:
+    # f1, f2 = f0 * (sqrt(1 + 1/(4Q^2)) ± 1/(2Q))
+    term = math.sqrt(1.0 + 1.0 / (4.0 * Q * Q))
+    f1 = f0 * (term - 1.0 / (2.0 * Q))
+    f2 = f0 * (term + 1.0 / (2.0 * Q))
+    return float(f1), float(f2)
 
 
 def baseline_bandpass(pp: Dict[str, Any]) -> Dict[str, Any]:
@@ -468,11 +464,12 @@ def render_bandpass(pp: Dict[str, Any], out_path: Path, meta: ItemMeta) -> Dict[
 
     b = baseline_bandpass(pp)
     if meta.difficulty != "edge":
-        # helper line at -3 dB from peak (~0 dB peak)
-        ax.axhline(-3.0103, linestyle="--", linewidth=1.0, alpha=0.6)
+        # helper line at -3 dB from peak (relative to actual peak)
+        peak_db = float(np.max(mag_db))
+        ax.axhline(peak_db - 3.0, linestyle="--", linewidth=1.0, alpha=0.6)
         ax.axvline(float(b["cp_f1_3db_hz"]), linestyle="--", linewidth=1.0, alpha=0.6)
         ax.axvline(float(b["cp_f2_3db_hz"]), linestyle="--", linewidth=1.0, alpha=0.6)
-        ax.text(float(b["resonance_hz"]), float(np.max(mag_db)), "f0", fontsize=9, va="bottom", ha="center")
+        ax.text(float(b["resonance_hz"]), peak_db, "f0", fontsize=9, va="bottom", ha="center")
 
     save_figure(fig, out_path)
     plt.close(fig)

@@ -1,5 +1,5 @@
 provider,model,id,type,n_fields,final_n,checkpoint_n,all_final_pass,all_checkpoint_pass
-gemini,gemini-2.5-pro,bandpass_response_000,bandpass_response,5,2,3,False,False
+gemini,gemini-2.5-pro,bandpass_response_000,bandpass_response,5,2,3,True,True
 gemini,gemini-2.5-pro,bandpass_response_001,bandpass_response,5,2,3,False,False
 gemini,gemini-2.5-pro,bandpass_response_002,bandpass_response,5,2,3,False,False
 gemini,gemini-2.5-pro,bandpass_response_003,bandpass_response,5,2,3,False,False
@@ -8,7 +8,7 @@ gemini,gemini-2.5-pro,bandpass_response_005,bandpass_response,5,2,3,False,False
 gemini,gemini-2.5-pro,bandpass_response_006,bandpass_response,5,2,3,False,False
 gemini,gemini-2.5-pro,bandpass_response_007,bandpass_response,5,2,3,False,False
 gemini,gemini-2.5-pro,bandpass_response_008,bandpass_response,5,2,3,False,False
-gemini,gemini-2.5-pro,bandpass_response_009,bandpass_response,5,2,3,False,False
+gemini,gemini-2.5-pro,bandpass_response_009,bandpass_response,5,2,3,False,True
 gemini,gemini-2.5-pro,bandpass_response_010,bandpass_response,5,2,3,False,False
 gemini,gemini-2.5-pro,bandpass_response_011,bandpass_response,5,2,3,False,False
 gemini,gemini-2.5-pro,bandpass_response_012,bandpass_response,5,2,3,False,False
@@ -17,12 +17,12 @@ gemini,gemini-2.5-pro,bandpass_response_014,bandpass_response,5,2,3,False,False
 gemini,gemini-2.5-pro,bandpass_response_015,bandpass_response,5,2,3,False,False
 gemini,gemini-2.5-pro,bandpass_response_016,bandpass_response,5,2,3,False,False
 gemini,gemini-2.5-pro,bandpass_response_017,bandpass_response,5,2,3,False,False
-gemini,gemini-2.5-pro,bandpass_response_018,bandpass_response,5,2,3,False,False
+gemini,gemini-2.5-pro,bandpass_response_018,bandpass_response,5,2,3,False,True
 gemini,gemini-2.5-pro,bandpass_response_019,bandpass_response,5,2,3,False,False
 gemini,gemini-2.5-pro,bandpass_response_020,bandpass_response,5,2,3,False,False
 gemini,gemini-2.5-pro,bandpass_response_021,bandpass_response,5,2,3,False,False
 gemini,gemini-2.5-pro,bandpass_response_022,bandpass_response,5,2,3,False,False
-gemini,gemini-2.5-pro,bandpass_response_023,bandpass_response,5,2,3,True,True
+gemini,gemini-2.5-pro,bandpass_response_023,bandpass_response,5,2,3,False,False
 gemini,gemini-2.5-pro,bandpass_response_024,bandpass_response,5,2,3,False,False
 gemini,gemini-2.5-pro,bandpass_response_025,bandpass_response,5,2,3,False,False
 gemini,gemini-2.5-pro,bandpass_response_026,bandpass_response,5,2,3,False,False

@@ -15,7 +15,7 @@ anthropic,claude-sonnet-4-5-20250929,bandpass_response_012,bandpass_response,5,2
 anthropic,claude-sonnet-4-5-20250929,bandpass_response_013,bandpass_response,5,2,3,False,False
 anthropic,claude-sonnet-4-5-20250929,bandpass_response_014,bandpass_response,5,2,3,False,False
 anthropic,claude-sonnet-4-5-20250929,bandpass_response_015,bandpass_response,5,2,3,False,False
-anthropic,claude-sonnet-4-5-20250929,bandpass_response_016,bandpass_response,5,2,3,False,True
+anthropic,claude-sonnet-4-5-20250929,bandpass_response_016,bandpass_response,5,2,3,False,False
 anthropic,claude-sonnet-4-5-20250929,bandpass_response_017,bandpass_response,5,2,3,False,False
 anthropic,claude-sonnet-4-5-20250929,bandpass_response_018,bandpass_response,5,2,3,False,False
 anthropic,claude-sonnet-4-5-20250929,bandpass_response_019,bandpass_response,5,2,3,False,False
@@ -26,7 +26,7 @@ anthropic,claude-sonnet-4-5-20250929,bandpass_response_023,bandpass_response,5,2
 anthropic,claude-sonnet-4-5-20250929,bandpass_response_024,bandpass_response,5,2,3,False,False
 anthropic,claude-sonnet-4-5-20250929,bandpass_response_025,bandpass_response,5,2,3,False,False
 anthropic,claude-sonnet-4-5-20250929,bandpass_response_026,bandpass_response,5,2,3,False,False
-anthropic,claude-sonnet-4-5-20250929,bandpass_response_027,bandpass_response,5,2,3,False,True
+anthropic,claude-sonnet-4-5-20250929,bandpass_response_027,bandpass_response,5,2,3,False,False
 anthropic,claude-sonnet-4-5-20250929,bandpass_response_028,bandpass_response,5,2,3,False,False
 anthropic,claude-sonnet-4-5-20250929,bandpass_response_029,bandpass_response,5,2,3,False,False
 anthropic,claude-sonnet-4-5-20250929,bode_magnitude_000,bode_magnitude,4,2,2,False,True
