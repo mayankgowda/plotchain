@@ -35,12 +35,12 @@ PROVIDER_RATE_LIMITS: Dict[str, RateLimit] = {
         max_concurrent=10,
     ),
     "anthropic": RateLimit(
-        requests_per_minute=50,  # Conservative: Anthropic paid tier allows more
-        max_concurrent=10,
+        requests_per_minute=20,  # Conservative: Anthropic paid tier allows more
+        max_concurrent=2,
     ),
     "gemini": RateLimit(
-        requests_per_minute=120,  # Conservative: Gemini paid tier allows more
-        max_concurrent=30,
+        requests_per_minute=40,  # Conservative: Gemini paid tier allows more
+        max_concurrent=20,
     ),
 }
 

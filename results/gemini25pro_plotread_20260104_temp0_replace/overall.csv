@@ -1,0 +1,2 @@
+provider,model,n,overall_pass_rate,mean_abs_err,mean_rel_err,mean_latency_s,final_n,final_pass_rate,checkpoint_n,checkpoint_pass_rate
+gemini,gemini-2.5-pro,1721,0.3776873910517141,1.3851428871611433,0.05396700252490543,14.280260324062544,1020,0.40588235294117647,701,0.33666191155492153

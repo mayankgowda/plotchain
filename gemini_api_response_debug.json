@@ -1,0 +1,35 @@
+{
+  "item_id": "bandpass_response_000",
+  "item_type": "bandpass_response",
+  "response_type": "<class 'google.genai.types.GenerateContentResponse'>",
+  "has_text": true,
+  "text_value": "```json\n{\n  \"resonance_hz\": 150,\n  \"bandwidth_hz\": 40,\n  \"cp_f1_3db_hz\": 130,\n  \"cp_f2_3db_hz\": 170,\n  \"cp_q_factor\": 3.75\n}\n```",
+  "has_candidates": true,
+  "candidates_count": 1,
+  "extracted_text": "```json\n{\n  \"resonance_hz\": 150,\n  \"bandwidth_hz\": 40,\n  \"cp_f1_3db_hz\": 130,\n  \"cp_f2_3db_hz\": 170,\n  \"cp_q_factor\": 3.75\n}\n```",
+  "extracted_text_length": 128,
+  "usage_metadata": {
+    "prompt_token_count": 498,
+    "candidates_token_count": 81,
+    "total_token_count": 5605
+  },
+  "candidates": [
+    {
+      "index": 0,
+      "type": "<class 'google.genai.types.Candidate'>",
+      "finish_reason": "STOP",
+      "token_count": null,
+      "has_content": true,
+      "content_type": "<class 'google.genai.types.Content'>",
+      "has_parts": true,
+      "parts": [
+        {
+          "index": 0,
+          "type": "<class 'google.genai.types.Part'>",
+          "has_text": true,
+          "text": "```json\n{\n  \"resonance_hz\": 150,\n  \"bandwidth_hz\": 40,\n  \"cp_f1_3db_hz\": 130,\n  \"cp_f2_3db_hz\": 170,\n  \"cp_q_factor\": 3.75\n}\n```"
+        }
+      ]
+    }
+  ]
+}

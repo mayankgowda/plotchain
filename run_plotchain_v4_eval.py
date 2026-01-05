@@ -757,6 +757,10 @@ def gemini_call(model: str, image_path: Path, prompt: str, max_output_tokens: in
     image_bytes = image_path.read_bytes()
     mime = guess_mime(image_path)
 
+    # Gemini requires 8192 tokens for temperature=0 to work properly
+    # Other models can use lower values, but Gemini needs the full allocation
+    gemini_max_tokens = 8192
+
     resp = client.models.generate_content(
         model=model,
         contents=[
@@ -765,10 +769,80 @@ def gemini_call(model: str, image_path: Path, prompt: str, max_output_tokens: in
         ],
         config=types.GenerateContentConfig(
             temperature=0,  # Deterministic for reproducibility
-            max_output_tokens=max_output_tokens,
+            max_output_tokens=gemini_max_tokens,  # Gemini-specific: needs 8192 for temperature=0
         ),
     )
-    return getattr(resp, "text", "") or ""
+    
+    # DEBUG: Log full response structure to file
+    debug_log_path = Path("gemini_api_responses_debug.jsonl")
+    try:
+        resp_debug = {
+            "has_text_attr": hasattr(resp, 'text'),
+            "text_value": getattr(resp, 'text', None),
+            "has_candidates": hasattr(resp, 'candidates'),
+            "candidates_count": len(resp.candidates) if hasattr(resp, 'candidates') and resp.candidates else 0,
+            "response_type": str(type(resp)),
+            "response_dir": [x for x in dir(resp) if not x.startswith('_')][:20],  # First 20 attributes
+        }
+        
+        # Try to extract candidate details
+        if hasattr(resp, 'candidates') and resp.candidates:
+            candidates_debug = []
+            for i, candidate in enumerate(resp.candidates):
+                cand_info = {
+                    "index": i,
+                    "type": str(type(candidate)),
+                    "has_content": hasattr(candidate, 'content'),
+                    "has_finish_reason": hasattr(candidate, 'finish_reason'),
+                    "finish_reason": getattr(candidate, 'finish_reason', None),
+                }
+                if hasattr(candidate, 'content') and candidate.content:
+                    cand_info["content_type"] = str(type(candidate.content))
+                    cand_info["has_parts"] = hasattr(candidate.content, 'parts')
+                    if hasattr(candidate.content, 'parts'):
+                        parts_info = []
+                        for j, part in enumerate(candidate.content.parts):
+                            part_info = {
+                                "index": j,
+                                "type": str(type(part)),
+                                "has_text": hasattr(part, 'text'),
+                                "text_length": len(part.text) if hasattr(part, 'text') and part.text else 0,
+                            }
+                            parts_info.append(part_info)
+                        cand_info["parts"] = parts_info
+                    elif hasattr(candidate.content, 'text'):
+                        cand_info["content_text_length"] = len(candidate.content.text) if candidate.content.text else 0
+                candidates_debug.append(cand_info)
+            resp_debug["candidates_detail"] = candidates_debug
+        
+        # Write debug info (append mode)
+        with debug_log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(resp_debug, default=str) + "\n")
+    except Exception as e:
+        # Don't fail if logging fails
+        pass
+    
+    # Try multiple ways to extract text from Gemini API response
+    text = ""
+    
+    # Method 1: Direct text attribute (most common)
+    if hasattr(resp, 'text') and resp.text:
+        text = resp.text
+    # Method 2: Candidates -> content -> parts (fallback)
+    elif hasattr(resp, 'candidates') and resp.candidates:
+        for candidate in resp.candidates:
+            if hasattr(candidate, 'content') and candidate.content:
+                if hasattr(candidate.content, 'parts') and candidate.content.parts is not None:
+                    for part in candidate.content.parts:
+                        if hasattr(part, 'text') and part.text:
+                            text += part.text
+                elif hasattr(candidate.content, 'text'):
+                    text += candidate.content.text
+                # Also try direct text on content
+                if hasattr(candidate.content, 'text'):
+                    text += candidate.content.text
+    
+    return text.strip()
 
 
 def anthropic_call(model: str, image_path: Path, prompt: str, max_output_tokens: int) -> str:
@@ -1010,6 +1084,7 @@ def run_mode_run(
                             "parsed_json": parsed,
                             "latency_s": dt,
                             "error": err,
+                            "raw_text_length": len(txt) if txt else 0,  # Debug: track length
                         },
                         ensure_ascii=False,
                     )
@@ -1086,7 +1161,7 @@ def main() -> None:
     ap.add_argument("--raw_glob", type=str, default="raw_*.jsonl", help="Glob for raw files when scoring")
     ap.add_argument("--models", type=str, nargs="*", default=[], help="List like: openai:gpt-4.1 gemini:... anthropic:...")
     ap.add_argument("--limit", type=int, default=0, help="Optional: limit number of items")
-    ap.add_argument("--max_output_tokens", type=int, default=400, help="Max tokens for model output")
+    ap.add_argument("--max_output_tokens", type=int, default=2000, help="Max tokens for model output (default: 2000; Gemini automatically uses 8192)")
     ap.add_argument("--seed", type=int, default=0, help="Deterministic shuffle seed (0 = no shuffle)")
     ap.add_argument("--overwrite", action="store_true", help="Overwrite raw_<provider>_<model>.jsonl if it exists")
     ap.add_argument("--sleep_s", type=float, default=0.0, help="Sleep between model calls (seconds)")
