@@ -342,7 +342,8 @@ def compute_paper_numbers(all_data: Dict[str, Dict], common_ids: List[str]) -> D
     leaderboard.sort(key=lambda x: x["item_final_allpass_rate"], reverse=True)
     numbers["overall_leaderboard"] = leaderboard
     
-    # Family performance - compute item-level final all-pass rate per family
+    # Family performance - compute field-level final pass rate per family (for heatmap visualization)
+    # Note: Item-level all-pass is stored separately in model metrics
     all_families = set()
     for data in all_data.values():
         if "per_item" in data:
@@ -361,16 +362,17 @@ def compute_paper_numbers(all_data: Dict[str, Dict], common_ids: List[str]) -> D
                 if len(family_items) > 0:
                     # Fix NaN handling
                     if "pass" in family_items.columns:
-                        family_items["pass"] = family_items["pass"].fillna(0).astype(float)
+                        family_items = family_items.copy()  # Avoid SettingWithCopyWarning
+                        family_items.loc[:, "pass"] = family_items["pass"].fillna(0).astype(float)
                     
-                    # Compute item-level final all-pass rate for this family
+                    # Use field-level final pass rate for heatmap (more informative than item-level all-pass)
                     if "is_checkpoint" in family_items.columns:
                         final_fields = family_items[~family_items["is_checkpoint"]]
                         if "pass" in final_fields.columns and len(final_fields) > 0:
-                            item_final_allpass = final_fields.groupby("id")["pass"].all()
-                            family_nums[model_name] = float(item_final_allpass.mean())
+                            # Field-level pass rate (mean pass over all final fields)
+                            family_nums[model_name] = float(final_fields["pass"].mean())
                     else:
-                        # Fallback to field-level pass rate
+                        # Fallback to overall field-level pass rate
                         if "pass" in family_items.columns:
                             family_nums[model_name] = float(family_items["pass"].mean())
             elif "summary" in data:
@@ -447,7 +449,7 @@ def generate_family_matrix_table(all_data: Dict[str, Dict], numbers: Dict, outpu
     
     # LaTeX
     models_short = [get_short_model_name(m) for m in models]
-    latex = "\\begin{table}[h]\n\\centering\n\\caption{Family-Level Performance Matrix (Pass Rate \\%)}\n"
+    latex = "\\begin{table}[h]\n\\centering\n\\caption{Family-Level Performance Matrix (Final-Field Pass Rate \\%)}\n"
     latex += "\\label{tab:family_matrix}\n\\resizebox{\\textwidth}{!}{%\n"
     latex += "\\begin{tabular}{l" + "c" * len(models) + "}\n\\toprule\n"
     latex += "Family & " + " & ".join(models_short) + " \\\\\n\\midrule\n"
@@ -691,25 +693,36 @@ def generate_figures(all_data: Dict[str, Dict], numbers: Dict, output_dir: Path)
             row.append(val * 100 if not np.isnan(val) else np.nan)
         heatmap_data.append(row)
     
-    fig, ax = plt.subplots(figsize=(10, 12))
+    # Optimize figure size for paper: smaller boxes, larger text
+    n_families = len(families)
+    n_models = len(models_sorted)
+    # Use smaller figure size with more compact cells
+    fig_width = max(8, n_models * 0.8)  # Smaller width per model
+    fig_height = max(10, n_families * 0.5)  # Smaller height per family
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+    
     im = ax.imshow(heatmap_data, cmap='RdYlGn', aspect='auto', vmin=0, vmax=100)
     
     models_labels = [get_model_label(m) for m in models_sorted]
     ax.set_xticks(np.arange(len(models_sorted)))
     ax.set_yticks(np.arange(len(families)))
-    ax.set_xticklabels(models_labels, rotation=45, ha='right')
-    ax.set_yticklabels(families)
+    ax.set_xticklabels(models_labels, rotation=45, ha='right', fontsize=11)
+    ax.set_yticklabels(families, fontsize=11)
     
-    # Add text annotations
+    # Add text annotations with larger font
     for i in range(len(families)):
         for j in range(len(models_sorted)):
             val = heatmap_data[i][j]
             if not np.isnan(val):
-                text = ax.text(j, i, f'{val:.0f}%', ha="center", va="center", color="black", fontsize=8)
+                # Use larger font size, all text in black
+                text = ax.text(j, i, f'{val:.0f}%', ha="center", va="center", 
+                              color="black", fontsize=12, fontweight='bold')
     
-    ax.set_title("Family-Level Performance Heatmap (Pass Rate %)", fontsize=14, fontweight='bold')
+    ax.set_title("Family-Level Performance Heatmap (Final-Field Pass Rate %)", 
+                fontsize=16, fontweight='bold', pad=15)
     cbar = plt.colorbar(im, ax=ax)
-    cbar.set_label('Pass Rate (%)', fontsize=10)
+    cbar.set_label('Pass Rate (%)', fontsize=12)
+    cbar.ax.tick_params(labelsize=11)
     
     plt.tight_layout()
     plt.savefig(fig_dir / "family_heatmap.pdf", dpi=300, bbox_inches='tight')
