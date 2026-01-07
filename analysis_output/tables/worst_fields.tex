@@ -1,0 +1,52 @@
+\begin{table}[h]
+\centering
+\caption{Worst Performing Fields (Bottom 10 per Model)}
+\label{tab:worst_fields}
+\footnotesize
+\begin{tabular}{lllcc}
+\toprule
+Model & Family & Field & Pass Rate (\%) & Count \\
+\midrule
+Claude 4.5 & fft\_spectrum & cp\_peak\_ratio & 0.0 & 30 \\
+Claude 4.5 & bandpass\_response & cp\_q\_factor & 3.3 & 30 \\
+Claude 4.5 & bandpass\_response & bandwidth\_hz & 6.7 & 30 \\
+Claude 4.5 & bandpass\_response & cp\_f1\_3db\_hz & 10.0 & 30 \\
+Claude 4.5 & bandpass\_response & cp\_f2\_3db\_hz & 13.3 & 30 \\
+Claude 4.5 & bandpass\_response & resonance\_hz & 20.0 & 30 \\
+Claude 4.5 & bode\_phase & phase\_deg\_at\_fq & 26.7 & 30 \\
+Claude 4.5 & time\_waveform & cp\_duty & 27.3 & 11 \\
+Claude 4.5 & fft\_spectrum & dominant\_frequency\_hz & 30.0 & 30 \\
+Claude 4.5 & stress\_strain & cp\_yield\_strain & 33.3 & 30 \\
+Gemini 2.5 & fft\_spectrum & cp\_peak\_ratio & 0.0 & 30 \\
+Gemini 2.5 & bandpass\_response & bandwidth\_hz & 3.3 & 30 \\
+Gemini 2.5 & bandpass\_response & cp\_q\_factor & 6.7 & 30 \\
+Gemini 2.5 & bandpass\_response & cp\_f1\_3db\_hz & 30.0 & 30 \\
+Gemini 2.5 & bandpass\_response & cp\_f2\_3db\_hz & 30.0 & 30 \\
+Gemini 2.5 & spectrogram & cp\_duration\_s & 30.0 & 30 \\
+Gemini 2.5 & stress\_strain & cp\_yield\_strain & 30.0 & 30 \\
+Gemini 2.5 & fft\_spectrum & dominant\_frequency\_hz & 33.3 & 30 \\
+Gemini 2.5 & bandpass\_response & resonance\_hz & 43.3 & 30 \\
+Gemini 2.5 & time\_waveform & cp\_duty & 45.5 & 11 \\
+GPT-4.1 & bandpass\_response & bandwidth\_hz & 0.0 & 30 \\
+GPT-4.1 & fft\_spectrum & cp\_peak\_ratio & 3.3 & 30 \\
+GPT-4.1 & stress\_strain & cp\_yield\_strain & 3.3 & 30 \\
+GPT-4.1 & bandpass\_response & cp\_q\_factor & 10.0 & 30 \\
+GPT-4.1 & time\_waveform & cp\_duty & 18.2 & 11 \\
+GPT-4.1 & bandpass\_response & cp\_f2\_3db\_hz & 20.0 & 30 \\
+GPT-4.1 & bandpass\_response & cp\_f1\_3db\_hz & 26.7 & 30 \\
+GPT-4.1 & fft\_spectrum & dominant\_frequency\_hz & 26.7 & 30 \\
+GPT-4.1 & bandpass\_response & resonance\_hz & 30.0 & 30 \\
+GPT-4.1 & time\_waveform & frequency\_hz & 46.7 & 30 \\
+GPT-4o & bandpass\_response & cp\_f2\_3db\_hz & 0.0 & 30 \\
+GPT-4o & fft\_spectrum & cp\_peak\_ratio & 0.0 & 30 \\
+GPT-4o & pump\_curve & q\_at\_half\_head\_m3h & 0.0 & 30 \\
+GPT-4o & stress\_strain & cp\_yield\_strain & 0.0 & 30 \\
+GPT-4o & bandpass\_response & resonance\_hz & 3.3 & 30 \\
+GPT-4o & bandpass\_response & cp\_f1\_3db\_hz & 6.7 & 30 \\
+GPT-4o & time\_waveform & cp\_duty & 9.1 & 11 \\
+GPT-4o & bandpass\_response & bandwidth\_hz & 10.0 & 30 \\
+GPT-4o & bandpass\_response & cp\_q\_factor & 13.3 & 30 \\
+GPT-4o & fft\_spectrum & dominant\_frequency\_hz & 16.7 & 30 \\
+\bottomrule
+\end{tabular}
+\end{table}

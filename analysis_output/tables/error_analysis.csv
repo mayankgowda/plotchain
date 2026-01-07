@@ -1,0 +1,5 @@
+Model,Error Count,Total Items,Error Rate
+Claude Sonnet 4.5,0,450,0.0
+Gemini 2.5 Pro,5,450,1.1111111111111112
+GPT-4.1,0,450,0.0
+GPT-4o,0,450,0.0

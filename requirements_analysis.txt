@@ -1,0 +1,12 @@
+# PlotChain v4 Analysis Script Dependencies
+
+# Required dependencies
+pandas>=1.5.0
+numpy>=1.20.0
+matplotlib>=3.5.0
+scipy>=1.8.0
+
+# Optional dependencies (for enhanced features)
+seaborn>=0.12.0
+statsmodels>=0.13.0
+

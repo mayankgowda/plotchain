@@ -1,0 +1,300 @@
+{
+  "models": {
+    "Claude Sonnet 4.5": {
+      "overall_field_pass_rate": 0.7821034282393957,
+      "final_field_pass_rate": 0.7774509803921569,
+      "checkpoint_field_pass_rate": 0.7888730385164051,
+      "error_rate": 0.0,
+      "mean_latency_s": 6.1305462354009475,
+      "item_final_allpass_rate": 0.6133333333333333,
+      "item_checkpoint_allpass_rate": 0.7538461538461538,
+      "item_final_field_accuracy": 0.7712962962962963,
+      "mean_abs_err": 9.228718268241868,
+      "mean_rel_err": 0.2033499111187183,
+      "total_fields": 1721
+    },
+    "Gemini 2.5 Pro": {
+      "overall_field_pass_rate": 0.8041836141778036,
+      "final_field_pass_rate": 0.8313725490196079,
+      "checkpoint_field_pass_rate": 0.7646219686162625,
+      "error_rate": 0.0,
+      "mean_latency_s": 20.6581532924692,
+      "item_final_allpass_rate": 0.72,
+      "item_checkpoint_allpass_rate": 0.6923076923076923,
+      "item_final_field_accuracy": 0.8212962962962964,
+      "mean_abs_err": 5.312794485078867,
+      "mean_rel_err": 0.1005095134104503,
+      "total_fields": 1721
+    },
+    "GPT-4.1": {
+      "overall_field_pass_rate": 0.7983730389308542,
+      "final_field_pass_rate": 0.8186274509803921,
+      "checkpoint_field_pass_rate": 0.7689015691868759,
+      "error_rate": 0.0,
+      "mean_latency_s": 1.9654055157073496,
+      "item_final_allpass_rate": 0.6844444444444444,
+      "item_checkpoint_allpass_rate": 0.7076923076923077,
+      "item_final_field_accuracy": 0.8068518518518518,
+      "mean_abs_err": 13.112095992549866,
+      "mean_rel_err": 0.210721547315083,
+      "total_fields": 1721
+    },
+    "GPT-4o": {
+      "overall_field_pass_rate": 0.6159209761766414,
+      "final_field_pass_rate": 0.5696078431372549,
+      "checkpoint_field_pass_rate": 0.6833095577746077,
+      "error_rate": 0.0,
+      "mean_latency_s": 2.21974120522432,
+      "item_final_allpass_rate": 0.3244444444444444,
+      "item_checkpoint_allpass_rate": 0.5923076923076923,
+      "item_final_field_accuracy": 0.5803703703703703,
+      "mean_abs_err": 26.521431171552543,
+      "mean_rel_err": 0.464154515961471,
+      "total_fields": 1721
+    }
+  },
+  "overall_leaderboard": [
+    {
+      "model": "Gemini 2.5 Pro",
+      "overall_field_pass_rate": 0.8041836141778036,
+      "final_field_pass_rate": 0.8313725490196079,
+      "checkpoint_field_pass_rate": 0.7646219686162625,
+      "item_final_allpass_rate": 0.72,
+      "item_checkpoint_allpass_rate": 0.6923076923076923,
+      "item_final_field_accuracy": 0.8212962962962964,
+      "mean_latency_s": 20.6581532924692
+    },
+    {
+      "model": "GPT-4.1",
+      "overall_field_pass_rate": 0.7983730389308542,
+      "final_field_pass_rate": 0.8186274509803921,
+      "checkpoint_field_pass_rate": 0.7689015691868759,
+      "item_final_allpass_rate": 0.6844444444444444,
+      "item_checkpoint_allpass_rate": 0.7076923076923077,
+      "item_final_field_accuracy": 0.8068518518518518,
+      "mean_latency_s": 1.9654055157073496
+    },
+    {
+      "model": "Claude Sonnet 4.5",
+      "overall_field_pass_rate": 0.7821034282393957,
+      "final_field_pass_rate": 0.7774509803921569,
+      "checkpoint_field_pass_rate": 0.7888730385164051,
+      "item_final_allpass_rate": 0.6133333333333333,
+      "item_checkpoint_allpass_rate": 0.7538461538461538,
+      "item_final_field_accuracy": 0.7712962962962963,
+      "mean_latency_s": 6.1305462354009475
+    },
+    {
+      "model": "GPT-4o",
+      "overall_field_pass_rate": 0.6159209761766414,
+      "final_field_pass_rate": 0.5696078431372549,
+      "checkpoint_field_pass_rate": 0.6833095577746077,
+      "item_final_allpass_rate": 0.3244444444444444,
+      "item_checkpoint_allpass_rate": 0.5923076923076923,
+      "item_final_field_accuracy": 0.5803703703703703,
+      "mean_latency_s": 2.21974120522432
+    }
+  ],
+  "family_performance": {
+    "bandpass_response": {
+      "Claude Sonnet 4.5": 0.0,
+      "Gemini 2.5 Pro": 0.0,
+      "GPT-4.1": 0.0,
+      "GPT-4o": 0.0
+    },
+    "bode_magnitude": {
+      "Claude Sonnet 4.5": 0.43333333333333335,
+      "Gemini 2.5 Pro": 0.7666666666666667,
+      "GPT-4.1": 0.8,
+      "GPT-4o": 0.3333333333333333
+    },
+    "bode_phase": {
+      "Claude Sonnet 4.5": 0.16666666666666666,
+      "Gemini 2.5 Pro": 0.5333333333333333,
+      "GPT-4.1": 0.4666666666666667,
+      "GPT-4o": 0.06666666666666667
+    },
+    "fft_spectrum": {
+      "Claude Sonnet 4.5": 0.26666666666666666,
+      "Gemini 2.5 Pro": 0.3,
+      "GPT-4.1": 0.23333333333333334,
+      "GPT-4o": 0.06666666666666667
+    },
+    "iv_diode": {
+      "Claude Sonnet 4.5": 0.6666666666666666,
+      "Gemini 2.5 Pro": 0.7,
+      "GPT-4.1": 0.7333333333333333,
+      "GPT-4o": 0.5333333333333333
+    },
+    "iv_resistor": {
+      "Claude Sonnet 4.5": 1.0,
+      "Gemini 2.5 Pro": 1.0,
+      "GPT-4.1": 1.0,
+      "GPT-4o": 1.0
+    },
+    "pole_zero": {
+      "Claude Sonnet 4.5": 0.6666666666666666,
+      "Gemini 2.5 Pro": 0.8333333333333334,
+      "GPT-4.1": 0.8666666666666667,
+      "GPT-4o": 0.13333333333333333
+    },
+    "pump_curve": {
+      "Claude Sonnet 4.5": 1.0,
+      "Gemini 2.5 Pro": 0.9666666666666667,
+      "GPT-4.1": 1.0,
+      "GPT-4o": 0.0
+    },
+    "sn_curve": {
+      "Claude Sonnet 4.5": 1.0,
+      "Gemini 2.5 Pro": 0.9,
+      "GPT-4.1": 0.9333333333333333,
+      "GPT-4o": 0.3333333333333333
+    },
+    "spectrogram": {
+      "Claude Sonnet 4.5": 0.5666666666666667,
+      "Gemini 2.5 Pro": 0.4666666666666667,
+      "GPT-4.1": 0.4,
+      "GPT-4o": 0.06666666666666667
+    },
+    "step_response": {
+      "Claude Sonnet 4.5": 0.5333333333333333,
+      "Gemini 2.5 Pro": 0.9333333333333333,
+      "GPT-4.1": 0.9,
+      "GPT-4o": 0.16666666666666666
+    },
+    "stress_strain": {
+      "Claude Sonnet 4.5": 0.7333333333333333,
+      "Gemini 2.5 Pro": 1.0,
+      "GPT-4.1": 0.9333333333333333,
+      "GPT-4o": 0.7333333333333333
+    },
+    "time_waveform": {
+      "Claude Sonnet 4.5": 0.7,
+      "Gemini 2.5 Pro": 0.7333333333333333,
+      "GPT-4.1": 0.4666666666666667,
+      "GPT-4o": 0.43333333333333335
+    },
+    "torque_speed": {
+      "Claude Sonnet 4.5": 1.0,
+      "Gemini 2.5 Pro": 0.9,
+      "GPT-4.1": 1.0,
+      "GPT-4o": 0.6333333333333333
+    },
+    "transfer_characteristic": {
+      "Claude Sonnet 4.5": 0.4666666666666667,
+      "Gemini 2.5 Pro": 0.7666666666666667,
+      "GPT-4.1": 0.5333333333333333,
+      "GPT-4o": 0.36666666666666664
+    }
+  },
+  "paired_comparisons": [
+    {
+      "model1": "Claude Sonnet 4.5",
+      "model2": "GPT-4.1",
+      "mcnemar_statistic": 9.240384615384615,
+      "mcnemar_pvalue": 0.0023673522414633386,
+      "final_pass_mean_diff": -0.07111111111111112,
+      "final_pass_ci_lower": -0.11555555555555555,
+      "final_pass_ci_upper": -0.02666666666666667,
+      "final_pass_effect_size": -0.10563875540452763,
+      "accuracy_t_statistic": -3.00766999163437,
+      "accuracy_pvalue": 0.0027804634651630838,
+      "accuracy_mean_diff": -0.03555555555555556,
+      "accuracy_ci_lower": -0.058888888888888886,
+      "accuracy_ci_upper": -0.011851851851851856,
+      "cohens_d": -0.1419407227397705,
+      "mcnemar_pvalue_corrected": 0.004734704482926677,
+      "accuracy_pvalue_corrected": 0.0055609269303261676
+    },
+    {
+      "model1": "Claude Sonnet 4.5",
+      "model2": "GPT-4o",
+      "mcnemar_statistic": 104.00625,
+      "mcnemar_pvalue": 0.0,
+      "final_pass_mean_diff": 0.28888888888888886,
+      "final_pass_ci_lower": 0.24,
+      "final_pass_ci_upper": 0.3377777777777778,
+      "final_pass_effect_size": 0.42765008913367497,
+      "accuracy_t_statistic": 13.256895082301941,
+      "accuracy_pvalue": 4.390803420828512e-34,
+      "accuracy_mean_diff": 0.19092592592592594,
+      "accuracy_ci_lower": 0.16277777777777777,
+      "accuracy_ci_upper": 0.21888888888888888,
+      "cohens_d": 0.6256315601449125,
+      "mcnemar_pvalue_corrected": 0.0,
+      "accuracy_pvalue_corrected": 1.756321368331405e-33
+    },
+    {
+      "model1": "Claude Sonnet 4.5",
+      "model2": "Gemini 2.5 Pro",
+      "mcnemar_statistic": 22.540816326530614,
+      "mcnemar_pvalue": 2.057256577203681e-06,
+      "final_pass_mean_diff": -0.10666666666666669,
+      "final_pass_ci_lower": -0.14888888888888888,
+      "final_pass_ci_upper": -0.06444444444444444,
+      "final_pass_effect_size": -0.16103393644569497,
+      "accuracy_t_statistic": -4.004461797259937,
+      "accuracy_pvalue": 7.27280312572491e-05,
+      "accuracy_mean_diff": -0.050000000000000155,
+      "accuracy_ci_lower": -0.07444444444444444,
+      "accuracy_ci_upper": -0.02555555555555556,
+      "cohens_d": -0.1889822365046136,
+      "mcnemar_pvalue_corrected": 6.171769731611043e-06,
+      "accuracy_pvalue_corrected": 0.00021818409377174727
+    },
+    {
+      "model1": "GPT-4.1",
+      "model2": "GPT-4o",
+      "mcnemar_statistic": 144.00555555555556,
+      "mcnemar_pvalue": 0.0,
+      "final_pass_mean_diff": 0.36,
+      "final_pass_ci_lower": 0.3111111111111111,
+      "final_pass_ci_upper": 0.4088888888888889,
+      "final_pass_effect_size": 0.5457299267707593,
+      "accuracy_t_statistic": 15.022386398638487,
+      "accuracy_pvalue": 1.286675843472524e-41,
+      "accuracy_mean_diff": 0.2264814814814815,
+      "accuracy_ci_lower": 0.19722222222222222,
+      "accuracy_ci_upper": 0.25574074074074077,
+      "cohens_d": 0.7089502467457068,
+      "mcnemar_pvalue_corrected": 0.0,
+      "accuracy_pvalue_corrected": 6.433379217362621e-41
+    },
+    {
+      "model1": "GPT-4.1",
+      "model2": "Gemini 2.5 Pro",
+      "mcnemar_statistic": 3.0405405405405403,
+      "mcnemar_pvalue": 0.08120887152819878,
+      "final_pass_mean_diff": -0.03555555555555556,
+      "final_pass_ci_lower": -0.07333333333333333,
+      "final_pass_ci_upper": 0.0022222222222222222,
+      "final_pass_effect_size": -0.055022142270352604,
+      "accuracy_t_statistic": -1.2033058180721479,
+      "accuracy_pvalue": 0.2294920633960215,
+      "accuracy_mean_diff": -0.014444444444444593,
+      "accuracy_ci_lower": -0.038148148148148146,
+      "accuracy_ci_upper": 0.009074074074074075,
+      "cohens_d": -0.05678751258256218,
+      "mcnemar_pvalue_corrected": 0.08120887152819878,
+      "accuracy_pvalue_corrected": 0.2294920633960215
+    },
+    {
+      "model1": "GPT-4o",
+      "model2": "Gemini 2.5 Pro",
+      "mcnemar_statistic": 163.171875,
+      "mcnemar_pvalue": 0.0,
+      "final_pass_mean_diff": -0.39555555555555555,
+      "final_pass_ci_lower": -0.4444444444444444,
+      "final_pass_ci_upper": -0.3466666666666667,
+      "final_pass_effect_size": -0.609789323811753,
+      "accuracy_t_statistic": -15.688429563239882,
+      "accuracy_pvalue": 1.5318399177892498e-44,
+      "accuracy_mean_diff": -0.2409259259259261,
+      "accuracy_ci_lower": -0.27166666666666667,
+      "accuracy_ci_upper": -0.2111111111111111,
+      "cohens_d": -0.7403827670761816,
+      "mcnemar_pvalue_corrected": 0.0,
+      "accuracy_pvalue_corrected": 9.1910395067355e-44
+    }
+  ]
+}
