@@ -1,2 +1,0 @@
-provider,model,type,field,n,pass_rate,mean_abs_err,median_abs_err,mean_rel_err,p95_abs_err,mean_latency_s
-openai,gpt-4.1,fft_spectrum,dominant_frequency_hz,20,0.5,9.18359375,6.5234375,0.16721967115010594,21.875,1.2487132787704467

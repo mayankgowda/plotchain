@@ -1,2 +1,0 @@
-provider,model,n_items,item_final_pass_rate,item_checkpoint_pass_rate,item_overall_pass_rate,item_consistency_pass_rate
-openai,gpt-4.1,135,0.37777777777777777,0.6296296296296297,0.34814814814814815,0.8740740740740741

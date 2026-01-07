@@ -1,2 +1,0 @@
-provider,model,n,overall_pass_rate,mean_abs_err,mean_rel_err,mean_latency_s,final_n,final_pass_rate,checkpoint_n,checkpoint_pass_rate
-anthropic,claude-sonnet-4-5-20250929,1721,0.6932016269610691,9.780380557917086,0.20895170458929896,7.4154817654877325,1020,0.6852941176470588,701,0.7047075606276747

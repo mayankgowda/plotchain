@@ -1,2 +1,0 @@
-provider,model,n,overall_pass_rate,completeness_rate,mean_latency_s,final_n,final_pass_rate,checkpoint_n,checkpoint_pass_rate,consistency_n,consistency_pass_rate,process_fidelity_score
-openai,gpt-4.1,1035,0.7053140096618358,0.9178743961352657,2.488854255538056,600,0.695,435,0.7195402298850575,200,0.67,0.6947701149425287
