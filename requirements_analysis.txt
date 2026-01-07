@@ -1,4 +1,4 @@
-# PlotChain v4 Analysis Script Dependencies
+# PlotChain Analysis Script Dependencies
 
 # Required dependencies
 pandas>=1.5.0

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-PlotChain v4 Results Analysis Script
+PlotChain Results Analysis Script
 
 This script analyzes evaluation results from multiple model runs and generates
 publication-ready outputs for IEEE conference paper.
 
 Usage:
-    python3 analyze_plotchain_v4_results.py --runs_dir results --output_dir analysis_output
+    python3 analyze_plotchain_results.py --runs_dir results --output_dir analysis_output
 
 Inputs:
     Expects subdirectories under --runs_dir, each containing:
@@ -22,7 +22,7 @@ Outputs:
     - figures/: PDF figures for paper inclusion
     - statistics/: Paired comparison statistics (CSV + LaTeX)
 
-Author: PlotChain v4 Analysis Pipeline
+Author: PlotChain Analysis Pipeline
 Date: January 2026
 """
 
@@ -967,7 +967,7 @@ def compute_paired_statistics(all_data: Dict[str, Dict], common_ids: List[str], 
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Analyze PlotChain v4 results for paper")
+    parser = argparse.ArgumentParser(description="Analyze PlotChain results for paper")
     parser.add_argument("--runs_dir", type=str, default="results",
                        help="Directory containing model run subdirectories")
     parser.add_argument("--output_dir", type=str, default="analysis_output",
@@ -979,7 +979,7 @@ def main():
     output_dir = Path(args.output_dir)
     
     print("=" * 100)
-    print("PlotChain v4 Results Analysis")
+    print("PlotChain Results Analysis")
     print("=" * 100)
     print()
     

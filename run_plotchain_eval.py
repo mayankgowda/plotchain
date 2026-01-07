@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-run_plotchain_v4_eval.py
+run_plotchain_eval.py
 
 Run multimodal LLMs on PlotChain (image + question) and score vs ground truth.
 
@@ -1150,7 +1150,7 @@ def run_mode_score(
 def main() -> None:
     ap = argparse.ArgumentParser()
 
-    ap.add_argument("--jsonl", type=str, required=True, help="Path to plotchain_v4.jsonl (or subset jsonl)")
+    ap.add_argument("--jsonl", type=str, required=True, help="Path to plotchain.jsonl (or subset jsonl)")
     ap.add_argument("--images_root", type=str, default="", help="Root directory for relative image paths (default: jsonl parent)")
     ap.add_argument("--out_dir", type=str, default="results", help="Output directory")
 

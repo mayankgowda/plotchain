@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-generate_plotchain_v4_FROZEN.py
+generate_plotchain_FROZEN.py
 
-PlotChain v4 (FROZEN) — deterministic, synthetic, verifiable engineering-plot benchmark.
+PlotChain (FROZEN) — deterministic, synthetic, verifiable engineering-plot benchmark.
 
 Key properties:
 - 100% reproducible from (master_seed, family, index)
@@ -14,13 +14,13 @@ Key properties:
 
 Output layout:
   <out_dir>/
-    plotchain_v4.jsonl
+    plotchain.jsonl
     images/<type>/*.png
     validation_rows.csv
     validation_summary.csv
 
 Run:
-  python3 generate_plotchain_v4_FROZEN.py --out_dir data/plotchain_v4 --n_per_family 30 --seed 0
+    python3 generate_plotchain_FROZEN.py --out_dir data/plotchain --n_per_family 30 --seed 0
 """
 
 from __future__ import annotations
@@ -1545,7 +1545,7 @@ def validate_items(items: List[Dict[str, Any]], out_dir: Path) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out_dir", type=str, default="data/plotchain_v4", help="Output directory")
+    ap.add_argument("--out_dir", type=str, default="data/plotchain", help="Output directory")
     ap.add_argument("--n_per_family", type=int, default=30, help="Items per plot family")
     ap.add_argument("--seed", type=int, default=0, help="Master seed")
     args = ap.parse_args()
@@ -1561,7 +1561,7 @@ def main() -> None:
         print(f"[gen] {typ}: n={len(items)}")
         all_items.extend(items)
 
-    jsonl_path = out_dir / "plotchain_v4.jsonl"
+    jsonl_path = out_dir / "plotchain.jsonl"
     with jsonl_path.open("w", encoding="utf-8") as f:
         for it in all_items:
             f.write(json.dumps(it, ensure_ascii=False) + "\n")

@@ -1,9 +1,9 @@
-# PlotChain v4 Dataset Manifest
+# PlotChain Dataset Manifest
 
 ## Dataset Information
 
-- **Dataset Name**: PlotChain v4
-- **Version**: v4.0 (FROZEN)
+- **Dataset Name**: PlotChain
+- **Version**: 1.0 (FROZEN)
 - **Generation Date**: January 2026
 - **Total Items**: 450
 - **Families**: 15
@@ -13,13 +13,13 @@
 
 ### Code Artifacts
 
-1. **Generator Script**: `generate_plotchain_v4.py`
+1. **Generator Script**: `generate_plotchain.py`
    - **Commit Hash**: e3f868d9b2e30a98434aad52a9121c458aa8296e
    - **Purpose**: Generates deterministic plots and ground truth
    - **Master Seed**: 0 (hardcoded in script)
    - **SHA256**: 46a04671b5729ea8caa9ed2867ee508f90b82bd9ccc1c81a2972b71bdf55df7d
 
-2. **Evaluation Script**: `run_plotchain_v4_eval.py`
+2. **Evaluation Script**: `run_plotchain_eval.py`
    - **Commit Hash**: e3f868d9b2e30a98434aad52a9121c458aa8296e
    - **Purpose**: Runs models and scores outputs
    - **Dependencies**: `concurrent_eval.py` for concurrent processing
@@ -33,17 +33,17 @@
 
 ### Data Artifacts
 
-1. **Dataset JSONL**: `data/plotchain_v4/plotchain_v4.jsonl`
+1. **Dataset JSONL**: `data/plotchain/plotchain.jsonl`
    - **Format**: One JSON object per line
    - **Fields**: id, type, image_path, question, ground_truth, plot_params, generation
 
-2. **Images**: `data/plotchain_v4/images/<family>/*.png`
+2. **Images**: `data/plotchain/images/<family>/*.png`
    - **Format**: PNG, 160 DPI
    - **Size**: 6.0 × 3.6 inches (or 5.2 × 5.2 for pole_zero)
 
 3. **Validation Files**: 
-   - `data/plotchain_v4/validation_rows.csv`
-   - `data/plotchain_v4/validation_summary.csv`
+   - `data/plotchain/validation_rows.csv`
+   - `data/plotchain/validation_summary.csv`
 
 ## Generation Parameters
 
@@ -59,7 +59,7 @@
 - **Temperature**: 0 (deterministic)
 - **Max Output Tokens**: 2000 (or default 400)
 - **Policy**: plotread (fair human plot-read tolerances)
-- **Prompt**: Uniform across all models (see `build_prompt()` in `run_plotchain_v4_eval.py`)
+- **Prompt**: Uniform across all models (see `build_prompt()` in `run_plotchain_eval.py`)
 
 ### Model-Specific Settings
 
@@ -100,8 +100,8 @@
 ### To Reproduce Dataset
 
 ```bash
-python3 generate_plotchain_v4.py \
-  --out_dir data/plotchain_v4 \
+python3 generate_plotchain.py \
+  --out_dir data/plotchain \
   --n_per_family 30 \
   --seed 0
 ```
@@ -109,8 +109,8 @@ python3 generate_plotchain_v4.py \
 ### To Reproduce Evaluation
 
 ```bash
-python3 run_plotchain_v4_eval.py \
-  --jsonl data/plotchain_v4/plotchain_v4.jsonl \
+python3 run_plotchain_eval.py \
+  --jsonl data/plotchain/plotchain.jsonl \
   --models openai:gpt-4.1 anthropic:claude-sonnet-4-5-20250929 gemini:gemini-2.5-pro openai:gpt-4o \
   --out_dir results \
   --mode run \
