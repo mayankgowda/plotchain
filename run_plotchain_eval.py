@@ -773,54 +773,55 @@ def gemini_call(model: str, image_path: Path, prompt: str, max_output_tokens: in
         ),
     )
     
-    # DEBUG: Log full response structure to file
+    # DEBUG: Log full response structure to file (only if DEBUG_GEMINI env var is set)
     debug_log_path = Path("gemini_api_responses_debug.jsonl")
-    try:
-        resp_debug = {
-            "has_text_attr": hasattr(resp, 'text'),
-            "text_value": getattr(resp, 'text', None),
-            "has_candidates": hasattr(resp, 'candidates'),
-            "candidates_count": len(resp.candidates) if hasattr(resp, 'candidates') and resp.candidates else 0,
-            "response_type": str(type(resp)),
-            "response_dir": [x for x in dir(resp) if not x.startswith('_')][:20],  # First 20 attributes
-        }
-        
-        # Try to extract candidate details
-        if hasattr(resp, 'candidates') and resp.candidates:
-            candidates_debug = []
-            for i, candidate in enumerate(resp.candidates):
-                cand_info = {
-                    "index": i,
-                    "type": str(type(candidate)),
-                    "has_content": hasattr(candidate, 'content'),
-                    "has_finish_reason": hasattr(candidate, 'finish_reason'),
-                    "finish_reason": getattr(candidate, 'finish_reason', None),
-                }
-                if hasattr(candidate, 'content') and candidate.content:
-                    cand_info["content_type"] = str(type(candidate.content))
-                    cand_info["has_parts"] = hasattr(candidate.content, 'parts')
-                    if hasattr(candidate.content, 'parts'):
-                        parts_info = []
-                        for j, part in enumerate(candidate.content.parts):
-                            part_info = {
-                                "index": j,
-                                "type": str(type(part)),
-                                "has_text": hasattr(part, 'text'),
-                                "text_length": len(part.text) if hasattr(part, 'text') and part.text else 0,
-                            }
-                            parts_info.append(part_info)
-                        cand_info["parts"] = parts_info
-                    elif hasattr(candidate.content, 'text'):
-                        cand_info["content_text_length"] = len(candidate.content.text) if candidate.content.text else 0
-                candidates_debug.append(cand_info)
-            resp_debug["candidates_detail"] = candidates_debug
-        
-        # Write debug info (append mode)
-        with debug_log_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(resp_debug, default=str) + "\n")
-    except Exception as e:
-        # Don't fail if logging fails
-        pass
+    if os.environ.get("DEBUG_GEMINI", "").lower() in ("1", "true", "yes"):
+        try:
+            resp_debug = {
+                "has_text_attr": hasattr(resp, 'text'),
+                "text_value": getattr(resp, 'text', None),
+                "has_candidates": hasattr(resp, 'candidates'),
+                "candidates_count": len(resp.candidates) if hasattr(resp, 'candidates') and resp.candidates else 0,
+                "response_type": str(type(resp)),
+                "response_dir": [x for x in dir(resp) if not x.startswith('_')][:20],  # First 20 attributes
+            }
+            
+            # Try to extract candidate details
+            if hasattr(resp, 'candidates') and resp.candidates:
+                candidates_debug = []
+                for i, candidate in enumerate(resp.candidates):
+                    cand_info = {
+                        "index": i,
+                        "type": str(type(candidate)),
+                        "has_content": hasattr(candidate, 'content'),
+                        "has_finish_reason": hasattr(candidate, 'finish_reason'),
+                        "finish_reason": getattr(candidate, 'finish_reason', None),
+                    }
+                    if hasattr(candidate, 'content') and candidate.content:
+                        cand_info["content_type"] = str(type(candidate.content))
+                        cand_info["has_parts"] = hasattr(candidate.content, 'parts')
+                        if hasattr(candidate.content, 'parts'):
+                            parts_info = []
+                            for j, part in enumerate(candidate.content.parts):
+                                part_info = {
+                                    "index": j,
+                                    "type": str(type(part)),
+                                    "has_text": hasattr(part, 'text'),
+                                    "text_length": len(part.text) if hasattr(part, 'text') and part.text else 0,
+                                }
+                                parts_info.append(part_info)
+                            cand_info["parts"] = parts_info
+                        elif hasattr(candidate.content, 'text'):
+                            cand_info["content_text_length"] = len(candidate.content.text) if candidate.content.text else 0
+                    candidates_debug.append(cand_info)
+                resp_debug["candidates_detail"] = candidates_debug
+            
+            # Write debug info (append mode)
+            with debug_log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(resp_debug, default=str) + "\n")
+        except Exception as e:
+            # Don't fail if logging fails
+            pass
     
     # Try multiple ways to extract text from Gemini API response
     text = ""

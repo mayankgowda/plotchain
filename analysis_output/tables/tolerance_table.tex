@@ -1,0 +1,27 @@
+\begin{table}[t]
+\centering
+\caption{PlotChain plot families and representative target variables (final fields; checkpoint fields are prefixed \texttt{cp\_} and omitted for brevity).}
+\label{tab:families}
+\footnotesize
+\begin{tabular}{p{0.28\columnwidth} p{0.22\columnwidth} p{0.34\columnwidth}}
+\hline
+\textbf{Family} & \textbf{Domain / Axes} & \textbf{Representative final outputs} \\
+\hline
+\texttt{step\_response} & Controls; time vs response & \texttt{percent\_overshoot}, \texttt{settling\_time\_s}, \texttt{steady\_state} \\
+\texttt{bode\_magnitude} & Circuits/controls; log-$f$ vs dB & \texttt{dc\_gain\_db}, \texttt{cutoff\_hz} \\
+\texttt{bode\_phase} & Circuits/controls; log-$f$ vs deg & \texttt{cutoff\_hz}, \texttt{phase\_deg\_at\_fq} \\
+\texttt{bandpass\_response} & Filters; log-$f$ vs dB & \texttt{resonance\_hz}, \texttt{bandwidth\_hz} \\
+\texttt{time\_waveform} & Signals; time vs voltage & \texttt{frequency\_hz}, \texttt{vpp\_v} \\
+\texttt{fft\_spectrum} & Signals; $f$ vs magnitude & \texttt{dominant\_frequency\_hz}, \texttt{secondary\_frequency\_hz} \\
+\texttt{spectrogram} & Signals; time--freq heatmap & \texttt{f1\_hz}, \texttt{f2\_hz}, \texttt{switch\_time\_s} \\
+\texttt{iv\_resistor} & Circuits; $V$--$I$ linear & \texttt{resistance\_ohm} \\
+\texttt{iv\_diode} & Circuits; $V$--$I$ exponential & \texttt{target\_current\_a}, \texttt{turn\_on\_voltage\_v\_at\_target\_i} \\
+\texttt{transfer\_characteristic} & Nonlinear blocks; $V_{in}$--$V_{out}$ & \texttt{small\_signal\_gain}, \texttt{saturation\_v} \\
+\texttt{pole\_zero} & Systems; complex plane & \texttt{pole\_real}, \texttt{pole\_imag}, \texttt{zero\_real}, \texttt{zero\_imag} \\
+\texttt{stress\_strain} & Materials; strain vs stress & \texttt{yield\_strength\_mpa}, \texttt{uts\_mpa}, \texttt{fracture\_strain} \\
+\texttt{torque\_speed} & Motors; speed vs torque & \texttt{stall\_torque\_nm}, \texttt{no\_load\_speed\_rpm} \\
+\texttt{pump\_curve} & Fluids; flow vs head & \texttt{head\_at\_qop\_m}, \texttt{q\_at\_half\_head\_m3h} \\
+\texttt{sn\_curve} & Fatigue; log--log cycles vs stress & \texttt{stress\_at\_1e5\_mpa}, \texttt{endurance\_limit\_mpa} \\
+\hline
+\end{tabular}
+\end{table}

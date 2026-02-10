@@ -1042,7 +1042,14 @@ def main():
     generate_hardest_families_table(all_data, output_dir)
     generate_worst_fields_table(all_data, output_dir)
     generate_error_table(all_data, common_ids, output_dir)
+    generate_tolerance_table(output_dir)
+    generate_parsing_rules_documentation(output_dir)
     print("   ✅ Tables generated")
+    print()
+    
+    print("🔍 Analyzing failure modes...")
+    analyze_failure_modes(all_data, common_ids, output_dir)
+    print("   ✅ Failure mode analysis complete")
     print()
     
     print("📊 Generating figures...")
@@ -1091,6 +1098,312 @@ def main():
     print(f"   - Statistics: {output_dir / 'statistics'}")
     print(f"   - Paper numbers: {output_dir / 'paper_numbers.json'}")
     print()
+
+
+def generate_tolerance_table(output_dir: Path):
+    """Generate tolerance table for appendix."""
+    # Import tolerance function from run_plotchain_eval
+    import sys
+    import importlib.util
+    eval_script_path = Path(__file__).parent / "run_plotchain_eval.py"
+    spec = importlib.util.spec_from_file_location("run_plotchain_eval", eval_script_path)
+    eval_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(eval_module)
+    
+    tol_map = eval_module.tolerances_plotread()
+    
+    # Organize by family
+    families = {}
+    for (family, field), (abs_tol, rel_tol) in sorted(tol_map.items()):
+        if family not in families:
+            families[family] = []
+        families[family].append({
+            "field": field,
+            "abs_tol": abs_tol,
+            "rel_tol": rel_tol,
+        })
+    
+    # Generate CSV
+    rows = []
+    for family in sorted(families.keys()):
+        for entry in sorted(families[family], key=lambda x: x["field"]):
+            rows.append({
+                "Family": family,
+                "Field": entry["field"],
+                "Absolute Tolerance": entry["abs_tol"],
+                "Relative Tolerance": entry["rel_tol"],
+            })
+    
+    df = pd.DataFrame(rows)
+    df.to_csv(output_dir / "tables" / "tolerance_table.csv", index=False)
+    
+    # Generate LaTeX table (simpler format without multirow)
+    latex = "\\begin{table}[h]\n\\centering\n\\caption{Tolerance Values for PlotRead Policy}\n"
+    latex += "\\label{tab:tolerances}\n\\footnotesize\n"
+    latex += "\\begin{tabular}{llcc}\n\\toprule\n"
+    latex += "Family & Field & Abs. Tol. & Rel. Tol. \\\\\n\\midrule\n"
+    
+    current_family = None
+    for _, row in df.iterrows():
+        family = row['Family'].replace('_', '\\_')
+        field = row['Field'].replace('_', '\\_')
+        abs_tol = row['Absolute Tolerance']
+        rel_tol = row['Relative Tolerance']
+        
+        # Format tolerances
+        if abs_tol == 0.0:
+            abs_str = "0"
+        elif abs_tol < 0.01:
+            abs_str = f"{abs_tol:.3f}"
+        elif abs_tol < 1.0:
+            abs_str = f"{abs_tol:.2f}"
+        else:
+            abs_str = f"{abs_tol:.1f}"
+        
+        rel_str = f"{rel_tol:.2f}" if rel_tol < 1.0 else f"{rel_tol:.1f}"
+        
+        # Show family name for each row (can be grouped visually)
+        latex += f"{family} & {field} & {abs_str} & {rel_str} \\\\\n"
+    
+    latex += "\\bottomrule\n\\end{tabular}\n\\end{table}\n"
+    
+    with open(output_dir / "tables" / "tolerance_table.tex", "w") as f:
+        f.write(latex)
+    
+    print(f"   ✅ Generated tolerance table ({len(rows)} entries)")
+
+
+def generate_parsing_rules_documentation(output_dir: Path):
+    """Generate parsing rules documentation."""
+    rules_md = """# Model Output Parsing Rules
+
+This document specifies the exact parsing and sanitization rules used to extract structured JSON from model outputs in PlotChain evaluation.
+
+## JSON Extraction Process
+
+The parsing process follows these steps in order:
+
+1. **Direct JSON Parse**: Attempt to parse the entire response text as JSON.
+   - If successful and result is a dictionary, use it.
+   - Otherwise, continue to step 2.
+
+2. **Fenced Code Block Extraction**: Search for JSON within markdown code fences.
+   - Pattern: ```json ... ``` or ``` ... ```
+   - Extract content between fences and attempt JSON parse.
+
+3. **First JSON Blob Extraction**: Extract first `{...}` block using regex.
+   - Pattern: `\\{.*\\}` (with DOTALL flag to match across lines)
+   - Attempt JSON parse on extracted blob.
+
+## Sanitization Rules
+
+Before parsing, the following sanitization rules are applied:
+
+### 1. Fraction Conversion
+
+**Pattern**: ``(\\d+(?:\\.\\d+)?)\\s*/\\s*(\\d+(?:\\.\\d+)?)``
+- Matches: `a/b` where `a` and `b` are numbers (integers or decimals)
+- Not preceded or followed by digits (to avoid matching dates like `2024/01/15`)
+- **Replacement**: Compute `a / b` as float
+  - If `b == 0`, replace with `null`
+  - Otherwise, replace with computed value formatted as `{val:.12g}`
+
+**Examples**:
+- `"1025/615"` → `"1.66666666667"`
+- `"3.14/2.0"` → `"1.57"`
+- `"10/0"` → `"null"`
+
+### 2. Trailing Comma Removal
+
+**Pattern**: `,\\s*([}\\]])`
+- Matches: Trailing commas before closing braces or brackets
+- **Replacement**: Remove the comma
+
+**Examples**:
+- `{"a": 1,}` → `{"a": 1}`
+- `[1, 2, 3,]` → `[1, 2, 3]`
+
+### 3. Type Conversion
+
+After JSON parsing, field values are converted using `_to_float()`:
+
+- **Numbers** (int/float): Convert to float (preserve NaN)
+- **Strings**: 
+  - Strip whitespace
+  - If empty → `None`
+  - Otherwise, attempt `float()` conversion
+    - Success → return float
+    - Failure → return `None`
+- **Other types**: Return `None`
+
+## Scoring Logic
+
+A field passes if:
+- `pred` is not `None` AND `gold` is not `None` AND
+- `(abs_err <= abs_tol) OR (rel_err <= rel_tol)`
+
+Where:
+- `abs_err = abs(pred - gold)`
+- `rel_err = abs(pred - gold) / max(abs(gold), 1e-12)`
+
+## Implementation Reference
+
+These rules are implemented in:
+- `run_plotchain_eval.py`: `extract_first_json()`, `_sanitize_json_candidate()`, `_to_float()`
+- See source code for exact regex patterns and edge case handling.
+"""
+    
+    with open(output_dir / "PARSING_RULES.md", "w") as f:
+        f.write(rules_md)
+    
+    # Also generate LaTeX version for appendix
+    latex = """\\section{Parsing Rules}
+
+The following rules are applied to extract structured JSON from model outputs:
+
+\\subsection{JSON Extraction Process}
+
+\\begin{enumerate}
+\\item \\textbf{Direct JSON Parse}: Attempt to parse the entire response as JSON.
+\\item \\textbf{Fenced Code Block}: Extract JSON from markdown code fences (\\texttt{```json ... ```}).
+\\item \\textbf{First JSON Blob}: Extract first \\texttt{\\{...\\}} block using regex pattern \\texttt{\\\\{.*\\}}.
+\\end{enumerate}
+
+\\subsection{Sanitization Rules}
+
+\\subsubsection{Fraction Conversion}
+Pattern: \\texttt{(\\textbackslash d+(?:\\textbackslash.\\textbackslash d+)?)\\textbackslash s*/\\textbackslash s*(\\textbackslash d+(?:\\textbackslash.\\textbackslash d+)?)}
+\\begin{itemize}
+\\item Matches fractions like \\texttt{"1025/615"}
+\\item Replaces with computed float: \\texttt{"1.66666666667"}
+\\item If denominator is zero, replaces with \\texttt{null}
+\\end{itemize}
+
+\\subsubsection{Trailing Comma Removal}
+Pattern: \\texttt{,\\textbackslash s*([\\}\\]])}
+\\begin{itemize}
+\\item Removes trailing commas before closing braces/brackets
+\\item Example: \\texttt{\\{\\"a\\": 1,\\}} → \\texttt{\\{\\"a\\": 1\\}}
+\\end{itemize}
+
+\\subsubsection{Type Conversion}
+String numbers are converted to float. Empty or invalid strings become \\texttt{None}.
+
+\\subsection{Scoring Logic}
+
+A field passes if: \\texttt{(abs\\_err <= abs\\_tol) OR (rel\\_err <= rel\\_tol)}.
+"""
+    
+    with open(output_dir / "tables" / "parsing_rules.tex", "w") as f:
+        f.write(latex)
+    
+    print("   ✅ Generated parsing rules documentation")
+
+
+def analyze_failure_modes(all_data: Dict[str, Dict], common_ids: List[str], output_dir: Path):
+    """Analyze failure modes for bandpass_response and fft_spectrum families."""
+    target_families = ["bandpass_response", "fft_spectrum"]
+    
+    for family in target_families:
+        rows = []
+        
+        for model_name, data in all_data.items():
+            if "per_item" not in data:
+                continue
+            
+            per_item = data["per_item"]
+            per_item_common = per_item[per_item["id"].isin(common_ids)].copy()
+            family_data = per_item_common[per_item_common["type"] == family].copy()
+            
+            if len(family_data) == 0:
+                continue
+            
+            # Fix NaN handling
+            if "pass" in family_data.columns:
+                family_data["pass"] = family_data["pass"].fillna(0).astype(float)
+            
+            # Group by item ID
+            item_groups = family_data.groupby("id")
+            
+            for item_id, item_fields in item_groups:
+                # Separate checkpoint and final fields
+                checkpoint_fields = item_fields[item_fields["is_checkpoint"] == True] if "is_checkpoint" in item_fields.columns else pd.DataFrame()
+                final_fields = item_fields[item_fields["is_checkpoint"] == False] if "is_checkpoint" in item_fields.columns else item_fields
+                
+                checkpoint_pass_rate = checkpoint_fields["pass"].mean() if len(checkpoint_fields) > 0 else 1.0
+                final_pass_rate = final_fields["pass"].mean() if len(final_fields) > 0 else 1.0
+                
+                # Categorize failure mode
+                if checkpoint_pass_rate < 0.5:
+                    failure_mode = "Visual Interpretation Error"
+                    failure_desc = "Failed to correctly read visual features from plot"
+                elif final_pass_rate < 0.5:
+                    failure_mode = "Numerical Reasoning Error"
+                    failure_desc = "Correctly read visual features but failed in calculations"
+                else:
+                    failure_mode = "Partial Failure"
+                    failure_desc = "Some fields failed but overall passed"
+                
+                # Get example failed fields
+                failed_fields = final_fields[final_fields["pass"] == 0]["field"].tolist() if len(final_fields) > 0 else []
+                
+                rows.append({
+                    "Model": model_name,
+                    "Item ID": item_id,
+                    "Checkpoint Pass Rate": checkpoint_pass_rate,
+                    "Final Pass Rate": final_pass_rate,
+                    "Failure Mode": failure_mode,
+                    "Failed Fields": ", ".join(failed_fields[:3]) if failed_fields else "None",
+                })
+        
+        if not rows:
+            continue
+        
+        df = pd.DataFrame(rows)
+        df.to_csv(output_dir / "tables" / f"failure_modes_{family}.csv", index=False)
+        
+        # Generate summary statistics
+        summary_rows = []
+        for model_name in df["Model"].unique():
+            model_df = df[df["Model"] == model_name]
+            visual_errors = (model_df["Failure Mode"] == "Visual Interpretation Error").sum()
+            reasoning_errors = (model_df["Failure Mode"] == "Numerical Reasoning Error").sum()
+            total_failures = len(model_df[model_df["Final Pass Rate"] < 1.0])
+            
+            summary_rows.append({
+                "Model": model_name,
+                "Total Failures": total_failures,
+                "Visual Interpretation Errors": visual_errors,
+                "Numerical Reasoning Errors": reasoning_errors,
+                "Visual Error %": (visual_errors / total_failures * 100) if total_failures > 0 else 0,
+                "Reasoning Error %": (reasoning_errors / total_failures * 100) if total_failures > 0 else 0,
+            })
+        
+        summary_df = pd.DataFrame(summary_rows)
+        summary_df.to_csv(output_dir / "tables" / f"failure_modes_{family}_summary.csv", index=False)
+        
+        # Generate LaTeX table
+        latex = f"\\begin{{table}}[h]\n\\centering\n\\caption{{Failure Mode Analysis: {family.replace('_', ' ').title()}}}\n"
+        latex += f"\\label{{tab:failure_modes_{family}}}\n\\footnotesize\n"
+        latex += "\\begin{tabular}{lcccl}\n\\toprule\n"
+        latex += "Model & Visual Errors & Reasoning Errors & Total Failures & Visual Error \\% \\\\\n\\midrule\n"
+        
+        for _, row in summary_df.iterrows():
+            # Use get_short_model_name if available, otherwise use full name
+            try:
+                model_short = get_short_model_name(row['Model'])
+            except:
+                model_short = row['Model']
+            latex += f"{model_short} & {int(row['Visual Interpretation Errors'])} & "
+            latex += f"{int(row['Numerical Reasoning Errors'])} & {int(row['Total Failures'])} & "
+            latex += f"{row['Visual Error %']:.1f} \\\\\n"
+        
+        latex += "\\bottomrule\n\\end{tabular}\n\\end{table}\n"
+        
+        with open(output_dir / "tables" / f"failure_modes_{family}.tex", "w") as f:
+            f.write(latex)
+        
+        print(f"   ✅ Generated failure mode analysis for {family}")
 
 
 if __name__ == "__main__":
